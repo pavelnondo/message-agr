@@ -33,7 +33,7 @@ cd /opt/message_aggregator
 
 # Clone the repository from GitHub
 echo "📥 Cloning repository from GitHub..."
-git clone https://github.com/tim2004timi/message_aggregator.git .
+git clone https://github.com/pavelnondo/message-agr.git .
 rm -rf .git  # Remove git history to avoid conflicts
 
 # Set up the database
