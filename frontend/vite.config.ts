@@ -6,9 +6,12 @@ import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "0.0.0.0",  // Слушает все IPv4-интерфейсы (лучше для Docker)
-    port: 8080,
-    strictPort: true,  // Не пытаться использовать другой порт, если 8080 занят
+    host: "::",
+    port: 8082,
+    hmr: {
+      port: 8082,
+      overlay: false,
+    },
   },
   plugins: [
     react(),

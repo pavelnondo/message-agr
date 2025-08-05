@@ -1,12 +1,12 @@
-version: '3.8'
+
 
 services:
   nginx:
     image: nginx:latest
     container_name: nginx
     ports:
-      - "0.0.0.0:8080:8080"
-      - "0.0.0.0:3001:3001"
+      - "0.0.0.0:3000:8080"
+      - "0.0.0.0:5678:5678"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -20,7 +20,7 @@ services:
     build:
       context: ./backend
     expose:
-      - "3001"
+      - "5678"
     env_file:
       - .env
     environment:
@@ -30,12 +30,17 @@ services:
 
   frontend:
     container_name: frontend
-    expose:
-      - "8080"
     build:
       context: ./frontend
+    ports:
+      - "0.0.0.0:5173:8080"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     env_file:
       - .env
+    environment:
+      - CHOKIDAR_USEPOLLING=true
     networks:
       - app_network
 
@@ -54,8 +59,49 @@ services:
     networks:
       - app_network
 
+  db:
+    image: postgres:15
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pavel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pavel123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app_network
+
 volumes:
   minio_data:
+  pgdata:
+  redis_data:
+  rabbitmq_data:
 
 networks:
   app_network:

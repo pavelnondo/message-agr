@@ -1,477 +1,638 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Message, Chat, getChatMessages, sendMessage as apiSendMessage, toggleAiChat, markChatAsRead, deleteChat, API_URL } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { Send, Trash2, Paperclip, ArrowDown } from 'lucide-react';
-import { toast } from '@/components/ui/sonner';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useWebSocket } from '@/contexts/WebSocketContext';
-import { useChat } from '@/contexts/ChatContext';
-import { ChatTags } from '@/components/ChatTags';
 
-interface ChatViewProps {
-  chatId: number | null;
-  onChatDeleted?: () => void;
+import React, { useState, useRef, useEffect } from 'react';
+import { useChat } from '../context/ChatContext';
+import { useNotification } from '../context/NotificationContext';
+import { TagEditor } from './TagEditor';
+import { ConfirmDialog } from './ConfirmDialog';
+
+// Styles for sender tags
+const senderTagStyles = `
+  .sender-tag {
+    display: inline-block;
+    background: #3b82f6;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .sender-tag:empty {
+    display: none;
+  }
+
+  .message.ai .sender-tag {
+    background: #10b981;
+  }
+
+  .message.operator .sender-tag {
+    display: none;
+  }
+
+  .ai-control-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ai-auto-activation-status {
+    font-size: 0.75rem;
+    color: #f59e0b;
+    background: #fef3c7;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+`;
+
+interface MessageReaction {
+  emoji: string;
+  count: number;
+  users: string[];
 }
 
-const ChatView = ({ chatId, onChatDeleted }: ChatViewProps) => {
-  const [newMessage, setNewMessage] = useState('');
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [chatInfo, setChatInfo] = useState<Chat | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [isNearBottom, setIsNearBottom] = useState(true);
+interface ReplyMessage {
+  id: string;
+  content: string;
+  sender: string;
+}
+
+export const ChatView: React.FC = () => {
+  const { state, actions } = useChat();
+  const { showNotification } = useNotification();
+  const [messageInput, setMessageInput] = useState('');
+  const [showTagEditor, setShowTagEditor] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [replyTo, setReplyTo] = useState<ReplyMessage | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
+  const [pinnedMessages, setPinnedMessages] = useState<string[]>([]);
+  const [showPinnedMessages, setShowPinnedMessages] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { sendMessage: wsSendMessage } = useWebSocket();
-  const { 
-    messages, 
-    loading: chatContextLoading, 
-    selectedChat, 
-    markChatAsRead: markChatAsReadFromContext, 
-    refreshChats, 
-    sendMessage,
-    shouldAutoScroll,
-    setShouldAutoScroll
-  } = useChat();
+  const selectedChat = state.chats.find(chat => chat.id === state.selectedChatId);
+  
+  const filteredMessages = state.messages.filter(message => {
+    if (!message || !message.content) return false;
+    return message.content.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
-  // Track the last message timestamp we've seen
-  const lastSeenMessageRef = useRef<string>('');
+  // Improved scroll behavior - DISABLED to prevent reloads
+  // useEffect(() => {
+  //   if (messagesEndRef.current) {
+  //     messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  //   }
+  // }, [state.messages]);
 
-  console.log('ChatView rendering with chatId:', chatId, 'messages from context:', messages.length);
+  // Auto-scroll to bottom when new messages arrive - DISABLED to prevent reloads
+  // useEffect(() => {
+  //   const container = messagesContainerRef.current;
+  //   if (container) {
+  //     const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
+  //     if (isAtBottom) {
+  //       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  //     }
+  //   }
+  // }, [filteredMessages]);
 
-  // Format timestamp for display
-  const formatMessageTime = (timestamp: string) => {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('ru-RU', { 
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).replace(',', '');
+  // Handle scroll events to show/hide scroll button
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
+      setShowScrollButton(!isAtBottom);
+    }
   };
 
-  const fetchChatInfo = useCallback(async () => {
-    if (!chatId) return;
-    setError(null);
-    try {
-      // Fetch chat info directly if chatId is available
-      const response = await fetch(`${API_URL}/chats/${chatId}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Чат не найден или недоступен.');
-          setChatInfo(null);
-          return;
-        }
-      const chatData = await response.json();
-      setAiEnabled(chatData.ai);
-      setChatInfo(chatData);
-
-      // Fetch all messages for the chat when chat info is loaded
-      const messagesData = await getChatMessages(chatData.id); // Fetch all messages
-      // Note: messages are added to context state via selectChat, not here directly
-
-    } catch (error) {
-      setError('Ошибка при загрузке чата.');
-      setChatInfo(null);
-      console.error('Failed to fetch chat info:', error, 'chatId:', chatId);
-    }
-  }, [chatId]);
-
-  useEffect(() => {
-    console.log('ChatView effect: chatId changed to', chatId);
-    // When chatId changes, fetch chat info and messages
-    if (chatId) {
-      fetchChatInfo();
-      // Messages are now loaded by ChatContext when selectChat is called.
-      // Ensure selectChat is called in the parent component when chatId changes.
-
-    } else {
-      setChatInfo(null);
-    }
-  }, [chatId, fetchChatInfo]);
-
-  // Send waiting=false periodically when chat is open
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-
-    if (chatId) {
-      // Send immediately on chat open
-      markChatAsReadFromContext(chatId);
-
-      // Set interval for subsequent calls
-      intervalId = setInterval(() => {
-        console.log(`Marking chat ${chatId} as read periodically...`);
-        markChatAsReadFromContext(chatId);
-      }, 3000); // Send every 3 seconds
-    }
-
-    // Cleanup function to clear interval
-    return () => {
-      console.log(`Clearing interval for chat ${chatId}`);
-      if (intervalId !== null) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [chatId, markChatAsReadFromContext]); // Re-run effect if chatId or markChatAsReadFromContext changes
-
-  // Check if user is near bottom of chat
-  const checkScrollPosition = useCallback(() => {
-    if (!messagesContainerRef.current) return;
-    
-    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isNear = distanceFromBottom < 100; // Consider "near bottom" if within 100px
-    setIsNearBottom(isNear);
-    
-    // If user manually scrolls to bottom, clear unread count and update last seen
-    if (isNear && messages.length > 0) {
-      setUnreadCount(0);
-      setShouldAutoScroll(true);
-      lastSeenMessageRef.current = messages[messages.length - 1].created_at;
-    } else {
-      setShouldAutoScroll(false);
-    }
-  }, [setShouldAutoScroll, messages]);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (shouldAutoScroll && isNearBottom) {
-      scrollToBottom();
-      // Update last seen message when auto-scrolling
-      if (messages.length > 0) {
-        lastSeenMessageRef.current = messages[messages.length - 1].created_at;
-      }
-    } else if (!isNearBottom && messages.length > 0) {
-      // Only increment unread count for messages newer than the last seen message
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.created_at > lastSeenMessageRef.current) {
-        setUnreadCount(prev => prev + 1);
-        lastSeenMessageRef.current = lastMessage.created_at;
-      }
-    }
-  }, [messages, shouldAutoScroll, isNearBottom]);
-
+  // Scroll to bottom function
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    setUnreadCount(0);
-    setShouldAutoScroll(true);
-    // Update last seen message when manually scrolling to bottom
-    if (messages.length > 0) {
-      lastSeenMessageRef.current = messages[messages.length - 1].created_at;
-    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChat) return;
+    if (!messageInput.trim() || !selectedChat) return;
+
     try {
-      await sendMessage(newMessage);
-      setNewMessage('');
+      await actions.sendMessage(messageInput.trim());
+      setMessageInput('');
+      setReplyTo(null);
+      showNotification('success', 'Message sent');
     } catch (error) {
-      console.error('Failed to send message:', error);
-      toast.error('Не удалось отправить сообщение');
+      showNotification('error', 'Failed to send message');
     }
   };
 
-  const handleAiToggle = async (checked: boolean) => {
-    if (!chatId) return;
+  const handleToggleAI = async () => {
+    if (!selectedChat) return;
     
     try {
-      console.log('Toggling AI status:', { chatId, checked });
-      const updatedChat = await toggleAiChat(chatId, checked);
-      console.log('AI status updated:', updatedChat);
-      setAiEnabled(updatedChat.ai);
-      toast.success(checked ? 'ИИ включен для этого чата' : 'ИИ отключен для этого чата');
+      await actions.toggleAI(selectedChat.id, !selectedChat.aiEnabled);
+      showNotification('success', `AI Assistant ${selectedChat.aiEnabled ? 'disabled' : 'enabled'}`);
     } catch (error) {
-      console.error('Failed to toggle AI status:', error);
-      fetchChatInfo();
+      showNotification('error', 'Failed to toggle AI Assistant');
     }
   };
 
   const handleDeleteChat = async () => {
-    if (!chatId) return;
+    if (!selectedChat) return;
     
     try {
-      await deleteChat(chatId);
-      toast.success('Чат успешно удален');
-      if (onChatDeleted) {
-        onChatDeleted();
-      }
+      await actions.deleteChat(selectedChat.id);
+      setShowDeleteConfirm(false);
+      showNotification('success', 'Chat deleted successfully');
     } catch (error) {
-      console.error('Failed to delete chat:', error);
+      showNotification('error', 'Failed to delete chat');
     }
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !selectedChat) return;
-
-    // Check if file is an image
-    if (!file.type.startsWith('image/')) {
-      toast.error('Пожалуйста, выберите изображение');
-      return;
-    }
-
+  const handleTagsUpdate = async (tags: string[]) => {
+    if (!selectedChat) return;
+    
     try {
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('chat_id', selectedChat.id.toString());
-
-      const response = await fetch(`${API_URL}/messages/image`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload image');
-      }
-
-      const data = await response.json();
-      setNewMessage('');
-      toast.success('Изображение отправлено');
+      await actions.updateChatTags(selectedChat.id, tags);
+      setShowTagEditor(false);
+      showNotification('success', 'Tags updated successfully');
     } catch (error) {
-      console.error('Error uploading image:', error);
-      toast.error('Не удалось отправить изображение');
+      showNotification('error', 'Failed to update tags');
     }
   };
 
-  useEffect(() => {
-    if (selectedChat && selectedChat.id === chatId) {
-      setChatInfo(selectedChat);
-      setAiEnabled(selectedChat.ai);
+  const formatTime = (timestamp: Date) => {
+    return new Date(timestamp).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  const formatRelativeTime = (timestamp: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return formatTime(timestamp);
+  };
+
+  const getMessageSenderDisplay = (sender: string) => {
+    if (!sender) return 'Unknown';
+    switch (sender) {
+      case 'user': return 'You';
+      case 'ai': return 'AI Assistant';
+      case 'operator': return 'Manager';
+      case 'client': return 'Client'; // This will show the user's name from Telegram
+      default: return sender.charAt(0).toUpperCase() + sender.slice(1);
     }
-  }, [selectedChat, chatId]);
+  };
 
-  if (!chatId) {
+  const getSenderIcon = (sender: string) => {
+    switch (sender) {
+      case 'user': return '👤';
+      case 'ai': return '🤖';
+      case 'operator': return '👨‍💼';
+      case 'client': return '💬';
+      default: return '��';
+    }
+  };
+
+  // Get message sender tag for display - AI tag only shows for AI messages
+  const getMessageSenderTag = (sender: string) => {
+    switch (sender) {
+      case 'ai': return 'AI';
+      case 'operator': return ''; // No tag for manager messages
+      case 'user': return ''; // No tag for user messages
+      case 'client': return ''; // No tag for client messages - will show user name instead
+      default: return '';
+    }
+  };
+
+  // Fixed message alignment: client messages on left, all others on right
+  const getMessageClass = (sender: string) => {
+    switch (sender) {
+      case 'client':
+        return 'message client'; // Left side (Telegram messages)
+      case 'user':
+      case 'ai':
+      case 'operator':
+        return `message ${sender}`; // Right side (our responses)
+      default:
+        return 'message';
+    }
+  };
+
+  // Message actions
+  const handleReply = (message: any) => {
+    setReplyTo({
+      id: message.id,
+      content: message.content,
+      sender: message.sender
+    });
+    inputRef.current?.focus();
+  };
+
+  const handleCopyMessage = (content: string) => {
+    navigator.clipboard.writeText(content);
+    showNotification('success', 'Message copied to clipboard');
+  };
+
+  const handleReaction = (messageId: string, emoji: string) => {
+    // TODO: Implement reaction logic
+    showNotification('success', `Reacted with ${emoji}`);
+  };
+
+  const handleEditMessage = (messageId: string) => {
+    // TODO: Implement edit functionality
+    showNotification('info', 'Edit functionality coming soon');
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    // TODO: Implement delete functionality
+    showNotification('info', 'Delete functionality coming soon');
+  };
+
+  const handlePinMessage = (messageId: string) => {
+    setPinnedMessages(prev => 
+      prev.includes(messageId) 
+        ? prev.filter(id => id !== messageId)
+        : [...prev, messageId]
+    );
+    showNotification('success', 'Message pinned');
+  };
+
+  const handleUnpinMessage = (messageId: string) => {
+    setPinnedMessages(prev => prev.filter(id => id !== messageId));
+    showNotification('success', 'Message unpinned');
+  };
+
+  const highlightSearchText = (text: string, searchTerm: string) => {
+    if (!searchTerm) return text;
+    const regex = new RegExp(`(${searchTerm})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, index) => 
+      regex.test(part) ? <mark key={index} className="search-highlight">{part}</mark> : part
+    );
+  };
+
+  const emojiReactions = ['👍', '❤️', '😮', '😢', '😡', '🎉'];
+
+  // Inject styles for sender tags
+  useEffect(() => {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = senderTagStyles;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
+  // Auto-activation countdown timer - DISABLED to prevent reloads
+  const [countdown, setCountdown] = useState<number>(0);
+  
+  // useEffect(() => {
+  //   if (state.lastManagerMessageTime && !selectedChat?.aiEnabled) {
+  //     const timer = setInterval(() => {
+  //       const remaining = Math.max(0, Math.ceil((300000 - (Date.now() - state.lastManagerMessageTime!)) / 1000 / 60));
+  //       setCountdown(remaining);
+  //       
+  //       if (remaining <= 0) {
+  //           clearInterval(timer);
+  //       }
+  //     }, 1000);
+
+  //     return () => clearInterval(timer);
+  //   } else {
+  //     setCountdown(0);
+  //   }
+  // }, [state.lastManagerMessageTime, selectedChat?.aiEnabled]);
+
+  if (!selectedChat) {
     return (
-      <div className="h-full flex items-center justify-center bg-gray-50">
-        <div className="text-center p-6">
-          <h3 className="text-xl font-medium text-gray-600 mb-2">Выберите чат</h3>
-          <p className="text-gray-500">Выберите чат из списка слева чтобы начать общение</p>
+      <div className="empty-state">
+        <div className="empty-state-icon">💬</div>
+        <div className="empty-state-title">Select a chat to start messaging</div>
+        <div className="empty-state-description">
+          Choose a conversation from the sidebar to view and send messages
         </div>
       </div>
     );
   }
-
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center bg-gray-50">
-        <div className="text-center p-6">
-          <h3 className="text-xl font-medium text-red-600 mb-2">{error}</h3>
-          <p className="text-gray-500">Попробуйте выбрать другой чат или обновить страницу.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const displayLoading = chatContextLoading && messages.length === 0;
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* Chat Header */}
-      <div className="border-b border-gray-300 py-2 px-4 flex items-center justify-between h-14">
-        <div className="flex items-center gap-4 flex-grow">
-          <h2 className="text-lg font-medium text-gray-800 truncate">
-            {chatInfo?.name || `Чат #${chatId}`}
-          </h2>
-          {chatInfo && (
-            <ChatTags
-              chatId={chatInfo.id}
-              tags={chatInfo.tags || []}
-              onTagsUpdate={(newTags) => {
-                setChatInfo(prev => prev ? { ...prev, tags: newTags } : null);
-              }}
-            />
-          )}
-        </div>
-        <div className="flex items-center space-x-4 flex-shrink-0">
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-600">ИИ</span>
-            <Switch checked={aiEnabled} onCheckedChange={handleAiToggle} />
+    <div className="chat-view">
+      <div className="chat-view-header">
+        <div>
+          <div className="chat-title">{selectedChat.name}</div>
+          <div className="chat-tags">
+            {selectedChat.tags.map(tag => (
+              <span key={tag} className="chat-tag">
+                {tag}
+              </span>
+            ))}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-red-500 hover:text-red-600 hover:bg-red-50"
-            onClick={() => setShowDeleteDialog(true)}
+
+        </div>
+        <div className="chat-controls">
+          <div className="ai-control-section">
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={selectedChat.aiEnabled}
+                onChange={handleToggleAI}
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            <span className="text-sm">AI Assistant</span>
+            {countdown > 0 && (
+              <span className="ai-auto-activation-status">
+                Auto-activating in {countdown}m
+              </span>
+            )}
+          </div>
+          <button
+            className="control-button"
+            onClick={() => setShowTagEditor(true)}
           >
-            <Trash2 size={18} />
-          </Button>
+            Edit Tags
+          </button>
+          <button
+            className="control-button danger"
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            Delete Chat
+          </button>
         </div>
       </div>
-      
-      {/* Messages Area */}
-      <div 
-        className="flex-1 overflow-y-auto p-4 bg-gray-50 messages-container relative" 
-        ref={messagesContainerRef}
-        onScroll={checkScrollPosition}
-      >
-        {displayLoading ? (
-          <div className="flex justify-center p-4">
-            <p className="text-gray-500">Загрузка сообщений...</p>
+
+      {state.messages.length > 0 && (
+        <div className="search-section">
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search messages..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {pinnedMessages.length > 0 && (
+            <button
+              className="pinned-messages-toggle"
+              onClick={() => setShowPinnedMessages(!showPinnedMessages)}
+            >
+              📌 Pinned Messages ({pinnedMessages.length})
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Pinned messages display */}
+      {showPinnedMessages && pinnedMessages.length > 0 && (
+        <div className="pinned-messages">
+          <div className="pinned-header">
+            <span>📌 Pinned Messages</span>
+            <button onClick={() => setShowPinnedMessages(false)}>×</button>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="flex justify-center p-4">
-            <p className="text-gray-500">Нет сообщений</p>
+          {filteredMessages
+            .filter(message => pinnedMessages.includes(message.id))
+            .map(message => (
+              <div key={`pinned-${message.id}`} className="pinned-message">
+                <div className="pinned-sender">{getMessageSenderDisplay(message.sender)}</div>
+                <div className="pinned-content">{message.content}</div>
+                <button 
+                  className="unpin-button"
+                  onClick={() => handleUnpinMessage(message.id)}
+                >
+                  📌
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
+
+      <div className="messages-container" ref={messagesContainerRef} onScroll={handleScroll}>
+        {state.loading && state.messages.length === 0 ? (
+          <div className="loading">
+            <div className="loading-spinner">⟳</div>
+            Loading messages...
+          </div>
+        ) : state.messages.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">💭</div>
+            <div className="empty-state-title">No messages yet</div>
+            <div className="empty-state-description">
+              Start the conversation by sending a message below
+            </div>
           </div>
         ) : (
-          <>
-            {[...messages]
-              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-              .map((message, index) => (
-            <MessageBubble 
-                  key={message.id || index}
-              message={message} 
-              formatTime={formatMessageTime}
-            />
-              ))}
-          </>
-        )}
-        <div ref={messagesEndRef} />
-        
-        {/* New Messages Indicator */}
-        {unreadCount > 0 && (
-          <div className="fixed bottom-24 right-4">
-            <button
-              onClick={scrollToBottom}
-              className="bg-black text-white rounded-full p-3 shadow-lg hover:bg-gray-800 transition-colors flex items-center justify-center w-12 h-12 relative"
-            >
-              <ArrowDown size={24} />
-              <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {unreadCount}
+          filteredMessages.map(message => (
+            <div key={message.id} className={getMessageClass(message.sender)}>
+              <div className="message-header">
+                <span className="message-sender">
+                  <span className="sender-icon">{getSenderIcon(message.sender)}</span>
+                  {getMessageSenderDisplay(message.sender)}
+                  {getMessageSenderTag(message.sender) && (
+                    <span className="sender-tag">{getMessageSenderTag(message.sender)}</span>
+                  )}
+                </span>
+                <span className="message-time" title={formatTime(message.timestamp)}>
+                  {formatRelativeTime(message.timestamp)}
+                </span>
               </div>
+              
+              <div className="message-content">
+                {message.type === 'image' && message.imageUrl ? (
+                  <img src={message.imageUrl} alt="Message attachment" style={{ maxWidth: '100%', borderRadius: '6px' }} />
+                ) : (
+                  highlightSearchText(message.content, searchQuery)
+                )}
+                
+                {/* Message status indicators */}
+                <div className="message-status">
+                  <span className="status-delivered">✓</span>
+                  <span className="status-read">✓</span>
+                </div>
+              </div>
+
+              {/* Message actions */}
+              <div className="message-actions">
+                <button 
+                  className="action-button"
+                  onClick={() => handleReply(message)}
+                  title="Reply"
+                >
+                  ↺
+                </button>
+                <button 
+                  className="action-button"
+                  onClick={() => handleCopyMessage(message.content)}
+                  title="Copy"
+                >
+                  📋
+                </button>
+                <button 
+                  className={`action-button ${pinnedMessages.includes(message.id) ? 'pinned' : ''}`}
+                  onClick={() => handlePinMessage(message.id)}
+                  title={pinnedMessages.includes(message.id) ? 'Unpin' : 'Pin'}
+                >
+                  📌
+                </button>
+                <button 
+                  className="action-button"
+                  onClick={() => setSelectedMessage(selectedMessage === message.id ? null : message.id)}
+                  title="More"
+                >
+                  ⋯
+                </button>
+              </div>
+
+              {/* Expanded actions menu */}
+              {selectedMessage === message.id && (
+                <div className="message-actions-expanded">
+                  <button onClick={() => handleEditMessage(message.id)}>Edit</button>
+                  <button onClick={() => handleDeleteMessage(message.id)}>Delete</button>
+                  <button onClick={() => setSelectedMessage(null)}>Cancel</button>
+                </div>
+              )}
+
+              {/* Emoji reactions */}
+              <div className="message-reactions">
+                {emojiReactions.map(emoji => (
+                  <button
+                    key={emoji}
+                    className="reaction-button"
+                    onClick={() => handleReaction(message.id, emoji)}
+                    title={`React with ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Scroll to bottom button */}
+      {showScrollButton && (
+        <button
+          className="scroll-to-bottom-button"
+          onClick={scrollToBottom}
+          title="Scroll to bottom"
+        >
+          ↓
+        </button>
+      )}
+
+      <div className="message-input-container">
+        {/* Reply preview */}
+        {replyTo && (
+          <div className="reply-preview">
+            <div className="reply-content">
+              <span className="reply-label">Replying to {getMessageSenderDisplay(replyTo.sender)}:</span>
+              <span className="reply-text">{replyTo.content}</span>
+            </div>
+            <button 
+              className="reply-cancel"
+              onClick={() => setReplyTo(null)}
+            >
+              ×
             </button>
           </div>
         )}
-      </div>
-      
-      {/* Message Input */}
-      <div className="border-t border-gray-200 px-4 py-3">
-        <form onSubmit={handleSendMessage} className="flex space-x-2">
-          <div className="relative flex-1">
-          <Input
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Введите сообщение..."
-              className="flex-1 border-gray-300 pr-10"
-            autoComplete="off"
-          />
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              accept="image/*"
-              className="hidden"
-            />
-            <Button
+
+        <form onSubmit={handleSendMessage} className="message-input-form">
+          <div className="input-actions">
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2"
-              onClick={() => fileInputRef.current?.click()}
+              className="emoji-button"
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              title="Add emoji"
             >
-              <Paperclip size={18} className="text-gray-500" />
-            </Button>
+              😊
+            </button>
+            <button
+              type="button"
+              className="attachment-button"
+              title="Attach file"
+            >
+              📎
+            </button>
+
           </div>
-          <Button type="submit" disabled={!newMessage.trim()}>
-            <Send size={18} className="mr-1" />
-            Отправить
-          </Button>
-        </form>
-      </div>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить чат?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это действие нельзя отменить. Это навсегда удалит чат и все его сообщения.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteChat}
-              className="bg-red-500 hover:bg-red-600"
-            >
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-};
-
-interface MessageBubbleProps {
-  message: Message;
-  formatTime: (timestamp: string) => string;
-}
-
-const MessageBubble = ({ message, formatTime }: MessageBubbleProps) => {
-  const isQuestion = message.message_type === 'question';
-  const imageRef = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    if (message.is_image && imageRef.current) {
-      imageRef.current.onload = () => {
-        // Scroll to bottom after image loads
-        const messagesContainer = document.querySelector('.messages-container');
-        if (messagesContainer) {
-          messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-      };
-    }
-  }, [message.is_image]);
-  
-  return (
-    <div className={`mb-4 flex ${isQuestion ? 'justify-start' : 'justify-end'}`}>
-      <div className={`max-w-[80%] rounded-lg px-4 py-2 ${
-        isQuestion ? 'bg-gray-300 text-gray-800' : 'bg-[#1F1F1F] text-white'
-      }`}>
-        <div className="mb-1 flex items-center">
-          {message.ai && (
-            <div className="mr-1 text-xs px-1 py-0.5 bg-white/20 rounded">
-              ИИ
-            </div>
-          )}
-        </div>
-        {message.is_image ? (
-          <img 
-            ref={imageRef}
-            src={message.message} 
-            alt="Uploaded image" 
-            className="max-w-full rounded-lg"
-            style={{ maxHeight: '300px' }}
+          
+          <textarea
+            ref={inputRef}
+            className="message-input"
+            value={messageInput}
+            onChange={(e) => setMessageInput(e.target.value)}
+            placeholder="Type your message..."
+            rows={1}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage(e);
+              }
+            }}
           />
-        ) : (
-        <p className="whitespace-pre-wrap break-words">{message.message}</p>
+          
+          <button
+            type="submit"
+            className="send-button"
+            disabled={!messageInput.trim()}
+          >
+            ➤
+          </button>
+        </form>
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div className="emoji-picker">
+            {emojiReactions.map(emoji => (
+              <button
+                key={emoji}
+                className="emoji-option"
+                onClick={() => {
+                  setMessageInput(prev => prev + emoji);
+                  setShowEmojiPicker(false);
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
         )}
-        <div className="text-right mt-1">
-          <span className={`text-xs ${isQuestion ? 'text-gray-500' : 'text-gray-300'}`}>
-            {formatTime(message.created_at)}
-          </span>
-        </div>
       </div>
+
+      {showTagEditor && (
+        <TagEditor
+          initialTags={selectedChat.tags}
+          onSave={handleTagsUpdate}
+          onClose={() => setShowTagEditor(false)}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title="Delete Chat"
+          message={`Are you sure you want to delete the chat with "${selectedChat.name}"? This action cannot be undone.`}
+          onConfirm={handleDeleteChat}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
     </div>
   );
 };
-
-export default ChatView;

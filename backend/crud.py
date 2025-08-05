@@ -1,22 +1,17 @@
 import os
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, selectinload
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, func, select, desc, ARRAY
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, func, select, desc, ARRAY, and_, delete, text
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 
-# Load environment variables
-load_dotenv()
+from shared import get_database_url
+from cache import cache_service
+import logging
 
 # Database configuration
-DB_HOST = os.getenv("DB_HOST")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_NAME = os.getenv("DB_NAME")
-DB_PORT = os.getenv("DB_PORT")
-
-DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = get_database_url()
 
 # SQLAlchemy engine and session
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -49,9 +44,38 @@ class Message(Base):
 
 
 # CRUD operations
-async def get_chats(db: AsyncSession):
-    result = await db.execute(select(Chat).order_by(Chat.id.desc()))
-    return result.scalars().all()
+async def get_chats(db: AsyncSession) -> List[Dict[str, Any]]:
+    """Get all chats with caching"""
+    # Try cache first
+    cached_chats = await cache_service.get("chats:all")
+    if cached_chats:
+        logging.info("Retrieved chats from cache")
+        return cached_chats
+    
+    # Query database
+    result = await db.execute(select(Chat))
+    chats = result.scalars().all()
+    
+    # Convert to dict format
+    chat_list = []
+    for chat in chats:
+        chat_dict = {
+            "id": str(chat.id),
+            "uuid": chat.uuid,
+            "name": chat.name,
+            "is_ai": chat.ai,
+            "tags": chat.tags,
+            "messager": chat.messager,
+            "created_at": chat.created_at.isoformat(),
+            "updated_at": chat.updated_at.isoformat()
+        }
+        chat_list.append(chat_dict)
+    
+    # Cache the result
+    await cache_service.set("chats:all", chat_list, ttl=300)  # 5 minutes
+    
+    logging.info(f"Retrieved {len(chat_list)} chats from database")
+    return chat_list
 
 async def get_chat(db: AsyncSession, chat_id: int):
     result = await db.execute(select(Chat).filter(Chat.id == chat_id))
@@ -61,15 +85,43 @@ async def get_chat_by_uuid(db: AsyncSession, uuid: str):
     result = await db.execute(select(Chat).filter(Chat.uuid == uuid))
     return result.scalar_one_or_none()
 
-async def get_messages(db: AsyncSession, chat_id: int):
+async def get_messages(db: AsyncSession, chat_id: UUID) -> List[Dict[str, Any]]:
+    """Get messages for a chat with caching"""
+    cache_key = f"messages:{chat_id}"
+    
+    # Try cache first
+    cached_messages = await cache_service.get(cache_key)
+    if cached_messages:
+        logging.info(f"Retrieved messages for chat {chat_id} from cache")
+        return cached_messages
+    
+    # Query database
     result = await db.execute(
-        select(Message)
-        .filter(Message.chat_id == chat_id)
-        .order_by(Message.created_at.asc())
+        select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at)
     )
-    return result.scalars().all()
+    messages = result.scalars().all()
+    
+    # Convert to dict format
+    message_list = []
+    for message in messages:
+        message_dict = {
+            "id": str(message.id),
+            "chat_id": str(message.chat_id),
+            "message": message.message,
+            "message_type": message.message_type,
+            "ai": message.ai,
+            "created_at": message.created_at.isoformat()
+        }
+        message_list.append(message_dict)
+    
+    # Cache the result
+    await cache_service.set(cache_key, message_list, ttl=900)  # 15 minutes
+    
+    logging.info(f"Retrieved {len(message_list)} messages for chat {chat_id} from database")
+    return message_list
 
 async def create_chat(db: AsyncSession, uuid: str, ai: bool = True, name: str = "Не известно", tags: List[str] = None, messager: str = "telegram"):
+    """Create a new chat and invalidate cache"""
     new_chat = Chat(
         uuid=uuid,
         ai=ai,
@@ -81,17 +133,29 @@ async def create_chat(db: AsyncSession, uuid: str, ai: bool = True, name: str = 
     try:
         await db.commit()
         await db.refresh(new_chat)
+        
+        # Invalidate cache
+        await cache_service.delete("chats:all")
+        
+        logging.info(f"Created chat {new_chat.id} with uuid {uuid}")
         return new_chat
     except SQLAlchemyError:
         await db.rollback()
         raise
 
-async def create_message(db: AsyncSession, chat_id: int, message: str, message_type: str, ai: bool = False):
+async def create_message(db: AsyncSession, chat_id: UUID, message: str, message_type: str, ai: bool = False):
+    """Create a new message and invalidate cache"""
     new_message = Message(chat_id=chat_id, message=message, message_type=message_type, ai=ai)
     db.add(new_message)
     try:
         await db.commit()
         await db.refresh(new_message)
+        
+        # Invalidate related caches
+        await cache_service.invalidate_chat_cache(str(chat_id))
+        await cache_service.delete("stats:global")
+        
+        logging.info(f"Created message {new_message.id} for chat {chat_id}")
         return new_message
     except SQLAlchemyError:
         await db.rollback()
@@ -113,11 +177,39 @@ async def update_chat_ai(db: AsyncSession, chat_id: int, ai: bool):
         await db.refresh(chat)
     return chat
 
-async def get_stats(db: AsyncSession):
-    total = await db.scalar(select(func.count(Chat.id)))
-    pending = await db.scalar(select(func.count(Chat.id)).filter(Chat.waiting == True))
-    ai_count = await db.scalar(select(func.count(Chat.id)).filter(Chat.ai == True))
-    return {"total": total, "pending": pending, "ai": ai_count}
+async def get_stats(db: AsyncSession) -> Dict[str, int]:
+    """Get statistics with caching"""
+    # Try cache first
+    cached_stats = await cache_service.get("stats:global")
+    if cached_stats:
+        logging.info("Retrieved stats from cache")
+        return cached_stats
+    
+    # Query database
+    total_result = await db.execute(select(func.count(Chat.id)))
+    total = total_result.scalar()
+    
+    ai_result = await db.execute(select(func.count(Chat.id)).filter(Chat.ai == True))
+    ai_count = ai_result.scalar()
+    
+    pending_result = await db.execute(
+        select(func.count(Chat.id)).filter(
+            and_(Chat.waiting == True)
+        )
+    )
+    pending = pending_result.scalar()
+    
+    stats = {
+        "total": total,
+        "ai": ai_count,
+        "pending": pending
+    }
+    
+    # Cache the result
+    await cache_service.set("stats:global", stats, ttl=300)  # 5 minutes
+    
+    logging.info(f"Retrieved stats: {stats}")
+    return stats
 
 async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> List[Dict[str, Any]]:
     """Get all chats with their last message"""
@@ -141,24 +233,15 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         last_message = last_message_result.scalar_one_or_none()
         
         chat_dict = {
-            "id": chat.id,
-            "uuid": chat.uuid,
-            "ai": chat.ai,
-            "waiting": chat.waiting,
+            "id": str(chat.id),  # Convert to string as frontend expects
             "name": chat.name,
-            "tags": chat.tags,
-            "messager": chat.messager,
-            "last_message": None
+            "lastMessage": last_message.message if last_message else "",
+            "timestamp": last_message.created_at if last_message else chat.created_at,
+            "tags": chat.tags or [],
+            "unreadCount": 0,  # TODO: Implement unread count
+            "waitingForResponse": chat.waiting,
+            "aiEnabled": chat.ai
         }
-        
-        if last_message:
-            chat_dict["last_message"] = {
-                "id": last_message.id,
-                "content": last_message.message,
-                "message_type": last_message.message_type,
-                "ai": last_message.ai,
-                "timestamp": last_message.created_at.isoformat() if last_message.created_at else None
-            }
         
         chats_with_messages.append(chat_dict)
     
@@ -170,7 +253,7 @@ async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, An
     query = (
         select(Message)
         .where(Message.chat_id == chat_id)
-        .order_by(desc(Message.created_at)) # Keep ordering
+        .order_by(Message.created_at) # Oldest first for proper chat flow
         # Removed: .limit(limit)
         # Removed: .offset(offset)
     )
@@ -185,6 +268,7 @@ async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, An
             "content": msg.message,
             "message_type": msg.message_type,
             "ai": msg.ai,
+            "sender": "ai" if msg.ai else "client",  # All non-AI messages are from client (Telegram)
             "timestamp": msg.created_at.isoformat() if msg.created_at else None,
             "chatId": str(chat_id),
             "is_image": msg.is_image
@@ -233,3 +317,32 @@ async def remove_chat_tag(db: AsyncSession, chat_id: int, tag: str) -> dict:
     except Exception as e:
         await db.rollback()
         return {"message": "error"}
+
+async def delete_chat(db: AsyncSession, chat_id: int) -> bool:
+    """Delete a chat and all its messages"""
+    try:
+        # Get the chat
+        chat = await get_chat(db, chat_id)
+        if not chat:
+            return False
+        
+        # Use raw SQL to delete messages first
+        await db.execute(text(f"DELETE FROM messages WHERE chat_id = {chat_id}"))
+        
+        # Delete the chat
+        await db.delete(chat)
+        await db.commit()
+        
+        # Invalidate cache
+        try:
+            await cache_service.delete("chats:all")
+            await cache_service.delete("stats:global")
+        except:
+            pass  # Cache might not be available
+        
+        logging.info(f"Deleted chat {chat_id}")
+        return True
+    except Exception as e:
+        await db.rollback()
+        logging.error(f"Error deleting chat {chat_id}: {e}")
+        return False
