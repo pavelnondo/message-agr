@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import ssl
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 
@@ -222,8 +223,8 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
                 }
                 await messages_manager.broadcast(json.dumps(message_data))
                 
-                # Process AI/n8n forwarding via polling task (to avoid duplicates)
-                await process_telegram_message(data["message"])
+                # AI/n8n processing will be handled by the polling task
+                # This webhook only saves to DB and broadcasts to frontend
                 
                 logger.info(f"Processed Telegram message: {text[:50]}...")
         
@@ -477,7 +478,13 @@ async def forward_to_n8n(message_data):
         logger.debug("N8N_WEBHOOK_URL not configured; skipping forward")
         return {"skipped": True}
     try:
-        async with aiohttp.ClientSession() as session:
+        # Create SSL context that ignores certificate verification for self-signed certs
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(N8N_WEBHOOK_URL, json=message_data, timeout=15) as resp:
                 try:
                     return await resp.json()
@@ -578,11 +585,24 @@ async def process_telegram_message(message_data: dict):
                 chat_name = message_data.get("chat", {}).get("title") or message_data.get("chat", {}).get("first_name", "Unknown")
                 existing_chat = await create_chat(db, chat_uuid, False, chat_name, [], "telegram")
             
-            # Create user message (if not already created by webhook)
+            # Create user message (for polling - webhook doesn't call this anymore)
             new_message = await create_message(db, existing_chat.id, text, "text", False)
             
             # Cache invalidation
             await cache_service.invalidate_chat_cache(str(existing_chat.id))
+            
+            # Broadcast to frontend (only for polling, webhook handles its own broadcast)
+            message_data = {
+                "type": "message",
+                "chatId": str(existing_chat.id),
+                "content": text,
+                "message_type": "text",
+                "ai": False,
+                "sender": "client",  # Telegram messages are from client
+                "timestamp": new_message.created_at.isoformat(),
+                "id": new_message.id
+            }
+            await messages_manager.broadcast(json.dumps(message_data))
             
             # Only forward to n8n / process AI if chat AI is enabled
             ai_response = None
