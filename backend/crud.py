@@ -40,6 +40,8 @@ class Message(Base):
     ai = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_image = Column(Boolean, default=False)
+    # New: track whether message was sent by operator (manager) from the UI
+    from_operator = Column(Boolean, default=False)
     chat = relationship("Chat", back_populates="messages")
 
 
@@ -143,9 +145,15 @@ async def create_chat(db: AsyncSession, uuid: str, ai: bool = True, name: str = 
         await db.rollback()
         raise
 
-async def create_message(db: AsyncSession, chat_id: UUID, message: str, message_type: str, ai: bool = False):
+async def create_message(db: AsyncSession, chat_id: UUID, message: str, message_type: str, ai: bool = False, from_operator: bool = False):
     """Create a new message and invalidate cache"""
-    new_message = Message(chat_id=chat_id, message=message, message_type=message_type, ai=ai)
+    new_message = Message(
+        chat_id=chat_id,
+        message=message,
+        message_type=message_type,
+        ai=ai,
+        from_operator=from_operator,
+    )
     db.add(new_message)
     try:
         await db.commit()
@@ -262,19 +270,23 @@ async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, An
     messages = result.scalars().all();
     
     # Prepare messages in the format expected by the frontend
-    return [
-        {
+    result: List[Dict[str, Any]] = []
+    for msg in messages:
+        if msg.ai:
+            sender = "ai"
+        else:
+            sender = "operator" if getattr(msg, "from_operator", False) else "client"
+        result.append({
             "id": msg.id,
             "content": msg.message,
             "message_type": msg.message_type,
             "ai": msg.ai,
-            "sender": "ai" if msg.ai else "client",  # All non-AI messages are from client (Telegram)
+            "sender": sender,
             "timestamp": msg.created_at.isoformat() if msg.created_at else None,
             "chatId": str(chat_id),
-            "is_image": msg.is_image
-        }
-        for msg in messages
-    ]
+            "is_image": msg.is_image,
+        })
+    return result
 
 async def add_chat_tag(db: AsyncSession, chat_id: int, tag: str) -> dict:
     chat = await get_chat(db, chat_id)
