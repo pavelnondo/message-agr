@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useReducer, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Chat, Message, ChatStats } from '../api/api';
+import { API_CONFIG } from '../api/config';
 import * as api from '../api/api';
 
 interface ChatState {
@@ -156,17 +157,60 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dispatch({ type: 'SET_LAST_MANAGER_MESSAGE_TIME', payload: null });
   }, [state.aiAutoActivationTimer]);
 
-  // WebSocket connections - TEMPORARILY DISABLED to prevent reloading bug
+  // WebSocket connections - enabled with reconnection logic
   useEffect(() => {
-    console.log('WebSocket connections temporarily disabled to prevent reloading bug');
-    
-    // Clean up timer on unmount
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(`${API_CONFIG.WS_BASE}/ws/messages`);
+
+        ws.onopen = () => {
+          // Connected
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'message') {
+              const message: Message = {
+                id: String(data.id ?? Date.now()),
+                chatId: String(data.chatId),
+                content: data.content,
+                sender: data.sender === 'ai' ? 'ai' : data.sender === 'operator' ? 'operator' : 'client',
+                timestamp: new Date(data.timestamp || Date.now()),
+                type: (data.message_type || 'text') as 'text' | 'image',
+              };
+              dispatch({ type: 'ADD_MESSAGE', payload: message });
+            }
+          } catch (e) {
+            // ignore parse errors
+          }
+        };
+
+        ws.onclose = () => {
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connect, 3000);
+        };
+        ws.onerror = () => {
+          try { ws && ws.close(); } catch {}
+        };
+      } catch (e) {
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    };
+
+    connect();
+
     return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws && ws.close(); } catch {}
       if (state.aiAutoActivationTimer) {
         clearTimeout(state.aiAutoActivationTimer);
       }
     };
-  }, []); // Empty dependency array
+  }, [state.aiAutoActivationTimer]);
 
   // Update ref when selected chat changes - using callback to avoid useEffect
   const updateSelectedChatRef = useCallback((chatId: string | null) => {

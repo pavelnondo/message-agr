@@ -45,7 +45,8 @@ export interface FAQ {
 // Chat operations
 export async function getChats(): Promise<Chat[]> {
   try {
-    const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.CHATS}`);
+    const base = API_CONFIG.API_URL || '';
+    const response = await fetch(`${base}${ENDPOINTS.CHATS}`);
     if (!response.ok) throw new Error('Failed to fetch chats');
     const data = await response.json();
     return data.map((chat: any) => ({
@@ -86,7 +87,8 @@ export async function getChats(): Promise<Chat[]> {
 }
 
 export async function getMessages(chatId: string): Promise<Message[]> {
-  const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.CHAT_MESSAGES}/${chatId}/messages`);
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.CHAT_MESSAGES}/${chatId}/messages`);
   if (!response.ok) throw new Error('Failed to fetch messages');
   const data = await response.json();
   return data.map((message: any) => ({
@@ -107,7 +109,8 @@ export async function sendMessage(chatId: string, content: string, type: 'text' 
     message_type: type,
     ai: false
   };
-  const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.MESSAGES}`, {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.MESSAGES}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -126,7 +129,8 @@ export async function sendMessage(chatId: string, content: string, type: 'text' 
 }
 
 export async function updateChatTags(chatId: string, tags: string[]): Promise<void> {
-  const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.CHATS}/${chatId}`, {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.CHATS}/${chatId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tags })
@@ -135,7 +139,8 @@ export async function updateChatTags(chatId: string, tags: string[]): Promise<vo
 }
 
 export async function deleteChat(chatId: string): Promise<void> {
-  const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.CHATS}/${chatId}`, {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.CHATS}/${chatId}`, {
     method: 'DELETE'
   });
   if (!response.ok) throw new Error('Failed to delete chat');
@@ -157,7 +162,8 @@ export async function markAsRead(chatId: string): Promise<void> {
 
 export async function getChatStats(): Promise<ChatStats> {
   try {
-    const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.STATS}`);
+    const base = API_CONFIG.API_URL || '';
+    const response = await fetch(`${base}${ENDPOINTS.STATS}`);
     if (!response.ok) throw new Error('Failed to fetch chat stats');
     return await response.json();
   } catch (error) {
@@ -217,10 +223,11 @@ export async function deleteFAQ(faqId: string): Promise<void> {
 
 // WebSocket connection for real-time updates
 export function connectMessagesWebSocket(onMessage: (message: Message) => void): WebSocket | null {
-  console.log('API: Connecting to WebSocket:', `${API_CONFIG.WS_URL}/messages`);
+  const base = (API_CONFIG as any).WS_BASE || '';
+  console.log('API: Connecting to WebSocket:', `${base}/ws/messages`);
   
   try {
-    const ws = new WebSocket(`${API_CONFIG.WS_URL}/messages`);
+    const ws = new WebSocket(`${base}/ws/messages`);
     
     ws.onopen = () => {
       console.log('WebSocket connected');
@@ -271,10 +278,11 @@ export function connectMessagesWebSocket(onMessage: (message: Message) => void):
 }
 
 export function connectChatUpdatesWebSocket(onChatUpdate: (chat: Chat) => void): WebSocket | null {
-  console.log('API: Connecting to chat updates WebSocket:', `${API_CONFIG.WS_URL}/updates`);
+  const base = (API_CONFIG as any).WS_BASE || '';
+  console.log('API: Connecting to chat updates WebSocket:', `${base}/ws/updates`);
   
   try {
-    const ws = new WebSocket(`${API_CONFIG.WS_URL}/updates`);
+    const ws = new WebSocket(`${base}/ws/updates`);
     
     ws.onopen = () => {
       console.log('Chat updates WebSocket connected');

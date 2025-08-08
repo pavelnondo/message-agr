@@ -27,8 +27,9 @@ from ai_processor import ai_processor
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import time
 
-TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "7320464918:AAFP14dpPs1iICvpY8nJfnNnk1kE-7O368I")
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://217.114.3.46:5678/webhook/76a8bfb0-a105-41a0-8553-e64a9d25ad79")
+# Secrets must come from environment; do not hardcode defaults
+TELEGRAM_BOT_TOKEN = settings.bot_token
+N8N_WEBHOOK_URL = settings.n8n_webhook_url
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -455,9 +456,20 @@ async def send_message_to_telegram(chat_id: int, text: str):
             return await resp.json()
 
 async def forward_to_n8n(message_data):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(N8N_WEBHOOK_URL, json=message_data) as resp:
-            return await resp.json()
+    """Forward message payload to n8n webhook if configured."""
+    if not N8N_WEBHOOK_URL:
+        logger.debug("N8N_WEBHOOK_URL not configured; skipping forward")
+        return {"skipped": True}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(N8N_WEBHOOK_URL, json=message_data, timeout=15) as resp:
+                try:
+                    return await resp.json()
+                except Exception:
+                    return {"status": resp.status}
+    except Exception as e:
+        logger.error(f"Failed to forward to n8n: {e}")
+        return {"error": str(e)}
 
 @app.middleware("http")
 async def monitor_requests(request: Request, call_next):

@@ -1,7 +1,13 @@
-// API Configuration - All backend URLs are configurable via environment variables
+// API Configuration - designed for both local dev and production behind nginx
+// Use same-origin relative paths by default so nginx can proxy /api and /ws
+const wsProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+const host = typeof window !== 'undefined' ? window.location.host : 'localhost';
+
 export const API_CONFIG = {
-  API_URL: 'http://localhost:3000',
-  WS_URL: 'ws://localhost:3000/ws', // Backend WebSocket server
+  // Empty means use same origin, e.g., http(s)://host
+  API_URL: '',
+  // WebSocket base, e.g., ws(s)://host
+  WS_BASE: `${wsProtocol}://${host}`,
 };
 
 // API endpoints

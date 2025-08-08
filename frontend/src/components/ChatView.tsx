@@ -75,6 +75,10 @@ export const ChatView: React.FC = () => {
   const [showPinnedMessages, setShowPinnedMessages] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    actions.loadChats();
+  }, []);
+
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 

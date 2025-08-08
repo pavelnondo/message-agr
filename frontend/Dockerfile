@@ -1,20 +1,30 @@
-# Use Node.js 18 Alpine for smaller image size
-FROM node:18-alpine
+## Frontend production build served by nginx
 
-# Set working directory
+# Build stage
+FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Copy package files first for better caching
+# Copy package files
 COPY package*.json ./
 
-# Remove conflicting lock files and install dependencies
-RUN rm -f package-lock.json bun.lockb && npm install
+# Install dependencies
+RUN npm install
 
 # Copy source code
 COPY . .
 
-# Expose the development port
-EXPOSE 5173
+# Build the app
+RUN npm run build
 
-# Start the development server with host binding for Docker
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"] 
+# Runtime stage
+FROM nginx:alpine
+
+# Copy built assets
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy nginx site config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
+
+CMD ["nginx", "-g", "daemon off;"]

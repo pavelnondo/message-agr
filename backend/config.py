@@ -1,41 +1,49 @@
 import os
 from typing import Optional
 
+
 class Settings:
+    """Application settings with environment overrides and safe defaults for Docker."""
+
     # Database
-    db_host: str = "db"
-    db_port: int = 5432
-    db_name: str = "pavel"
-    db_user: str = "postgres"
-    db_password: str = "pavel123"
-    
+    db_host: str = os.getenv("DB_HOST", "db")
+    db_port: int = int(os.getenv("DB_PORT", "5432"))
+    db_name: str = os.getenv("DB_NAME", "message_aggregator")
+    db_user: str = os.getenv("DB_USER", "postgres")
+    db_password: str = os.getenv("DB_PASSWORD", "pavel123")
+
     # Redis
-    redis_url: str = "redis://redis:6379/0"
-    
+    redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
     # RabbitMQ
-    rabbitmq_url: str = "amqp://admin:admin123@rabbitmq:5672/"
-    
+    rabbitmq_url: str = os.getenv("RABBITMQ_URL", "amqp://admin:admin123@rabbitmq:5672/")
+
     # Telegram
-    bot_token: str = "7320464918:AAFP14dpPs1iICvpY8nJfnNnk1kE-7O368I"
-    
+    # Do NOT hardcode secrets. Must be provided via environment.
+    bot_token: str = os.getenv("BOT_TOKEN", "")
+
     # n8n
-    n8n_webhook_url: str = "http://217.114.3.46:5678/webhook/76a8bfb0-a105-41a0-8553-e64a9d25ad79"
-    api_url: Optional[str] = None
-    
+    n8n_webhook_url: str = os.getenv("N8N_WEBHOOK_URL", "")
+    api_url: Optional[str] = os.getenv("API_URL")
+
     # API Settings
-    rate_limit: int = 60
-    ai_timeout: int = 30
-    max_retries: int = 3
-    
+    rate_limit: int = int(os.getenv("RATE_LIMIT", "60"))
+    ai_timeout: int = int(os.getenv("AI_TIMEOUT", "30"))
+    max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
+
     # Application Settings
-    app_host: str = "localhost"
-    minio_login: str = "minioadmin"
-    minio_pwd: str = "minioadmin"
-    
+    app_host: str = os.getenv("HOST", "0.0.0.0")
+    minio_login: str = os.getenv("MINIO_LOGIN", "minioadmin")
+    minio_pwd: str = os.getenv("MINIO_PWD", "minioadmin")
+
     # Monitoring
-    prometheus_enabled: bool = True
+    prometheus_enabled: bool = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
+
 
 settings = Settings()
 
 # Database URL
-DATABASE_URL = f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}" 
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}",
+)
