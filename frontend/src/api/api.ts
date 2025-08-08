@@ -107,7 +107,8 @@ export async function sendMessage(chatId: string, content: string, type: 'text' 
     chat_id: parseInt(chatId),
     message: content,
     message_type: type,
-    ai: false
+    ai: false,
+    from_operator: true,
   };
   const base = API_CONFIG.API_URL || '';
   const response = await fetch(`${base}${ENDPOINTS.MESSAGES}`, {
@@ -121,7 +122,7 @@ export async function sendMessage(chatId: string, content: string, type: 'text' 
     id: data.id.toString(),
     chatId: data.chat_id.toString(),
     content: data.message,
-    sender: data.ai ? 'ai' : 'user',
+    sender: data.ai ? 'ai' : (data.from_operator ? 'operator' : 'user'),
     timestamp: new Date(data.created_at),
     type: data.message_type || 'text',
     imageUrl: data.image_url,
