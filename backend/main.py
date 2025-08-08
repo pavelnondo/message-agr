@@ -222,6 +222,9 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
                 }
                 await messages_manager.broadcast(json.dumps(message_data))
                 
+                # Process AI/n8n forwarding via polling task (to avoid duplicates)
+                await process_telegram_message(data["message"])
+                
                 logger.info(f"Processed Telegram message: {text[:50]}...")
         
         return {"status": "ok"}
@@ -575,43 +578,17 @@ async def process_telegram_message(message_data: dict):
                 chat_name = message_data.get("chat", {}).get("title") or message_data.get("chat", {}).get("first_name", "Unknown")
                 existing_chat = await create_chat(db, chat_uuid, False, chat_name, [], "telegram")
             
-            # Create user message
+            # Create user message (if not already created by webhook)
             new_message = await create_message(db, existing_chat.id, text, "text", False)
             
             # Cache invalidation
             await cache_service.invalidate_chat_cache(str(existing_chat.id))
             
-            # Broadcast to frontend
-            message_data = {
-                "type": "message",
-                "chatId": str(existing_chat.id),
-                "content": text,
-                "message_type": "text",
-                "ai": False,
-                "sender": "client",  # Telegram messages are from client
-                "timestamp": new_message.created_at.isoformat(),
-                "id": new_message.id
-            }
-            await messages_manager.broadcast(json.dumps(message_data))
-            
-            # Forward raw message to n8n if configured
-            try:
-                await forward_to_n8n({
-                    "source": "telegram",
-                    "chat_id": chat_id,
-                    "user_id": user_id,
-                    "text": text,
-                    "internal_chat_id": existing_chat.id,
-                    "timestamp": new_message.created_at.isoformat(),
-                })
-            except Exception as e:
-                logger.error(f"Forward to n8n failed: {e}")
-
             # Only forward to n8n / process AI if chat AI is enabled
             ai_response = None
             if existing_chat.ai:
                 ai_start_time = time.time()
-                # Forward raw message to n8n for workflow handling as well
+                # Forward raw message to n8n for workflow handling
                 try:
                     await forward_to_n8n({
                         "source": "telegram",
