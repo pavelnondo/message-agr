@@ -10,17 +10,14 @@ export const API_CONFIG = {
   WS_BASE: `${wsProtocol}://${host}`,
 };
 
-// API endpoints
+// API endpoints - Updated for n8n workflow
 export const ENDPOINTS = {
   CHATS: '/api/chats',
   MESSAGES: '/api/messages',
   CHAT_MESSAGES: '/api/chats', // Will be used as /api/chats/{id}/messages
-  AI_CONTEXT: '/api/ai/context',
-  FAQ: '/api/faq',
-  SEND_MESSAGE: '/api/messages/send',
-  UPDATE_TAGS: '/api/chats/tags',
-  DELETE_CHAT: '/api/chats',
-  TOGGLE_AI: '/api/chats/ai',
-  MARK_READ: '/api/chats/read',
   STATS: '/api/stats',
+  BOT_SETTINGS: '/api/bot-settings',
+  WS_MESSAGES: '/ws/messages',
+  WS_UPDATES: '/ws/updates',
+  HEALTH: '/health',
 };

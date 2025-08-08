@@ -1,7 +1,7 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, selectinload
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, func, select, desc, ARRAY, and_, delete, text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, func, select, desc, ARRAY, and_, delete, text, BigInteger, Text
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -19,33 +19,67 @@ async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False
 
 Base = declarative_base()
 
-# Models
+# Models for n8n workflow
+class BotSettings(Base):
+    __tablename__ = "bot_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(50), unique=True, nullable=False)
+    value = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 class Chat(Base):
     __tablename__ = "chats"
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String, unique=True, nullable=False)
-    ai = Column(Boolean, default=False)
-    waiting = Column(Boolean, default=False)
-    tags = Column(ARRAY(String), default=[])
-    name = Column(String(30), default="Не известно")
-    messager = Column(String(16), nullable=False, default="telegram")
+    id = Column(BigInteger, primary_key=True, index=True)
+    user_id = Column(String(100))
+    is_awaiting_manager_confirmation = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
     __tablename__ = "messages"
-    id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
-    message = Column(String, nullable=False)
-    message_type = Column(String, nullable=False)
-    ai = Column(Boolean, default=False)
+    id = Column(BigInteger, primary_key=True, index=True)
+    chat_id = Column(BigInteger, ForeignKey("chats.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    message_type = Column(String(10), nullable=False)  # 'question' or 'answer'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    is_image = Column(Boolean, default=False)
-    # New: track whether message was sent by operator (manager) from the UI
-    from_operator = Column(Boolean, default=False)
     chat = relationship("Chat", back_populates="messages")
 
+# CRUD operations for bot_settings
+async def get_bot_settings(db: AsyncSession) -> Dict[str, str]:
+    """Get all bot settings"""
+    result = await db.execute(select(BotSettings))
+    settings = result.scalars().all()
+    
+    settings_dict = {}
+    for setting in settings:
+        settings_dict[setting.key] = setting.value
+    
+    return settings_dict
 
-# CRUD operations
+async def get_bot_setting(db: AsyncSession, key: str) -> Optional[str]:
+    """Get a specific bot setting"""
+    result = await db.execute(select(BotSettings).filter(BotSettings.key == key))
+    setting = result.scalar_one_or_none()
+    return setting.value if setting else None
+
+async def update_bot_setting(db: AsyncSession, key: str, value: str):
+    """Update or create a bot setting"""
+    result = await db.execute(select(BotSettings).filter(BotSettings.key == key))
+    setting = result.scalar_one_or_none()
+    
+    if setting:
+        setting.value = value
+    else:
+        setting = BotSettings(key=key, value=value)
+        db.add(setting)
+    
+    await db.commit()
+    await db.refresh(setting)
+    return setting
+
+# CRUD operations for chats
 async def get_chats(db: AsyncSession) -> List[Dict[str, Any]]:
     """Get all chats with caching"""
     # Try cache first
@@ -63,11 +97,8 @@ async def get_chats(db: AsyncSession) -> List[Dict[str, Any]]:
     for chat in chats:
         chat_dict = {
             "id": str(chat.id),
-            "uuid": chat.uuid,
-            "name": chat.name,
-            "is_ai": chat.ai,
-            "tags": chat.tags,
-            "messager": chat.messager,
+            "user_id": chat.user_id,
+            "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
             "created_at": chat.created_at.isoformat(),
             "updated_at": chat.updated_at.isoformat()
         }
@@ -83,11 +114,40 @@ async def get_chat(db: AsyncSession, chat_id: int):
     result = await db.execute(select(Chat).filter(Chat.id == chat_id))
     return result.scalar_one_or_none()
 
-async def get_chat_by_uuid(db: AsyncSession, uuid: str):
-    result = await db.execute(select(Chat).filter(Chat.uuid == uuid))
+async def get_chat_by_user_id(db: AsyncSession, user_id: str):
+    result = await db.execute(select(Chat).filter(Chat.user_id == user_id))
     return result.scalar_one_or_none()
 
-async def get_messages(db: AsyncSession, chat_id: UUID) -> List[Dict[str, Any]]:
+async def create_chat(db: AsyncSession, user_id: str):
+    """Create a new chat"""
+    chat = Chat(user_id=user_id)
+    db.add(chat)
+    await db.commit()
+    await db.refresh(chat)
+    
+    # Clear cache
+    await cache_service.delete("chats:all")
+    
+    return chat
+
+async def update_chat_manager_confirmation(db: AsyncSession, chat_id: int, is_awaiting: bool):
+    """Update chat manager confirmation status"""
+    result = await db.execute(select(Chat).filter(Chat.id == chat_id))
+    chat = result.scalar_one_or_none()
+    
+    if chat:
+        chat.is_awaiting_manager_confirmation = is_awaiting
+        await db.commit()
+        await db.refresh(chat)
+        
+        # Clear cache
+        await cache_service.delete("chats:all")
+        
+        return chat
+    return None
+
+# CRUD operations for messages
+async def get_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, Any]]:
     """Get messages for a chat with caching"""
     cache_key = f"messages:{chat_id}"
     
@@ -99,7 +159,9 @@ async def get_messages(db: AsyncSession, chat_id: UUID) -> List[Dict[str, Any]]:
     
     # Query database
     result = await db.execute(
-        select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at)
+        select(Message)
+        .filter(Message.chat_id == chat_id)
+        .order_by(Message.created_at)
     )
     messages = result.scalars().all()
     
@@ -111,250 +173,109 @@ async def get_messages(db: AsyncSession, chat_id: UUID) -> List[Dict[str, Any]]:
             "chat_id": str(message.chat_id),
             "message": message.message,
             "message_type": message.message_type,
-            "ai": message.ai,
             "created_at": message.created_at.isoformat()
         }
         message_list.append(message_dict)
     
     # Cache the result
-    await cache_service.set(cache_key, message_list, ttl=900)  # 15 minutes
+    await cache_service.set(cache_key, message_list, ttl=300)  # 5 minutes
     
     logging.info(f"Retrieved {len(message_list)} messages for chat {chat_id} from database")
     return message_list
 
-async def create_chat(db: AsyncSession, uuid: str, ai: bool = True, name: str = "Не известно", tags: List[str] = None, messager: str = "telegram"):
-    """Create a new chat and invalidate cache"""
-    new_chat = Chat(
-        uuid=uuid,
-        ai=ai,
-        name=name,
-        tags=tags or [],
-        messager=messager
-    )
-    db.add(new_chat)
-    try:
-        await db.commit()
-        await db.refresh(new_chat)
-        
-        # Invalidate cache
-        await cache_service.delete("chats:all")
-        
-        logging.info(f"Created chat {new_chat.id} with uuid {uuid}")
-        return new_chat
-    except SQLAlchemyError:
-        await db.rollback()
-        raise
-
-async def create_message(db: AsyncSession, chat_id: UUID, message: str, message_type: str, ai: bool = False, from_operator: bool = False):
-    """Create a new message and invalidate cache"""
-    new_message = Message(
+async def create_message(db: AsyncSession, chat_id: int, message: str, message_type: str):
+    """Create a new message"""
+    if message_type not in ['question', 'answer']:
+        raise ValueError("message_type must be 'question' or 'answer'")
+    
+    message_obj = Message(
         chat_id=chat_id,
         message=message,
-        message_type=message_type,
-        ai=ai,
-        from_operator=from_operator,
+        message_type=message_type
     )
-    db.add(new_message)
-    try:
-        await db.commit()
-        await db.refresh(new_message)
-        
-        # Invalidate related caches
-        await cache_service.invalidate_chat_cache(str(chat_id))
-        await cache_service.delete("stats:global")
-        
-        logging.info(f"Created message {new_message.id} for chat {chat_id}")
-        return new_message
-    except SQLAlchemyError:
-        await db.rollback()
-        raise
-
-async def update_chat_waiting(db: AsyncSession, chat_id: int, waiting: bool):
-    chat = await get_chat(db, chat_id)
-    if chat:
-        chat.waiting = waiting
-        await db.commit()
-        await db.refresh(chat)
-    return chat
-
-async def update_chat_ai(db: AsyncSession, chat_id: int, ai: bool):
-    chat = await get_chat(db, chat_id)
-    if chat:
-        chat.ai = ai
-        await db.commit()
-        await db.refresh(chat)
-    return chat
-
-async def get_stats(db: AsyncSession) -> Dict[str, int]:
-    """Get statistics with caching"""
-    # Try cache first
-    cached_stats = await cache_service.get("stats:global")
-    if cached_stats:
-        logging.info("Retrieved stats from cache")
-        return cached_stats
+    db.add(message_obj)
+    await db.commit()
+    await db.refresh(message_obj)
     
-    # Query database
-    total_result = await db.execute(select(func.count(Chat.id)))
-    total = total_result.scalar()
+    # Clear cache
+    await cache_service.delete(f"messages:{chat_id}")
     
-    ai_result = await db.execute(select(func.count(Chat.id)).filter(Chat.ai == True))
-    ai_count = ai_result.scalar()
-    
-    pending_result = await db.execute(
-        select(func.count(Chat.id)).filter(
-            and_(Chat.waiting == True)
-        )
-    )
-    pending = pending_result.scalar()
-    
-    stats = {
-        "total": total,
-        "ai": ai_count,
-        "pending": pending
-    }
-    
-    # Cache the result
-    await cache_service.set("stats:global", stats, ttl=300)  # 5 minutes
-    
-    logging.info(f"Retrieved stats: {stats}")
-    return stats
-
-async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> List[Dict[str, Any]]:
-    """Get all chats with their last message"""
-    # First get all chats
-    query = select(Chat).order_by(desc(Chat.id))
-    if limit:
-        query = query.limit(limit)
-    result = await db.execute(query)
-    chats = result.scalars().all()
-    
-    chats_with_messages = []
-    for chat in chats:
-        # Get only the last message for each chat
-        last_message_query = (
-            select(Message)
-            .where(Message.chat_id == chat.id)
-            .order_by(desc(Message.id))
-            .limit(1)
-        )
-        last_message_result = await db.execute(last_message_query)
-        last_message = last_message_result.scalar_one_or_none()
-        
-        chat_dict = {
-            "id": str(chat.id),  # Convert to string as frontend expects
-            "name": chat.name,
-            "lastMessage": last_message.message if last_message else "",
-            "timestamp": last_message.created_at if last_message else chat.created_at,
-            "tags": chat.tags or [],
-            "unreadCount": 0,  # TODO: Implement unread count
-            "waitingForResponse": chat.waiting,
-            "aiEnabled": chat.ai
-        }
-        
-        chats_with_messages.append(chat_dict)
-    
-    return chats_with_messages
+    return message_obj
 
 async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, Any]]:
     """Get all messages for a specific chat"""
-    # Remove pagination: page and limit
-    query = (
-        select(Message)
-        .where(Message.chat_id == chat_id)
-        .order_by(Message.created_at) # Oldest first for proper chat flow
-        # Removed: .limit(limit)
-        # Removed: .offset(offset)
+    return await get_messages(db, chat_id)
+
+async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> List[Dict[str, Any]]:
+    """Get chats with their last message"""
+    # This is a complex query that gets the last message for each chat
+    query = text("""
+        SELECT DISTINCT ON (c.id) 
+            c.id, c.user_id, c.is_awaiting_manager_confirmation, 
+            c.created_at, c.updated_at,
+            m.id as message_id, m.message, m.message_type, m.created_at as message_created_at
+        FROM chats c
+        LEFT JOIN messages m ON c.id = m.chat_id
+        ORDER BY c.id, m.created_at DESC
+        LIMIT :limit
+    """)
+    
+    result = await db.execute(query, {"limit": limit})
+    rows = result.fetchall()
+    
+    chat_list = []
+    for row in rows:
+        chat_dict = {
+            "id": str(row[0]),
+            "user_id": row[1],
+            "is_awaiting_manager_confirmation": row[2],
+            "created_at": row[3].isoformat() if row[3] else None,
+            "updated_at": row[4].isoformat() if row[4] else None,
+            "last_message": {
+                "id": str(row[5]) if row[5] else None,
+                "message": row[6] if row[6] else None,
+                "message_type": row[7] if row[7] else None,
+                "created_at": row[8].isoformat() if row[8] else None
+            } if row[5] else None
+        }
+        chat_list.append(chat_dict)
+    
+    return chat_list
+
+async def get_stats(db: AsyncSession) -> Dict[str, int]:
+    """Get chat and message statistics"""
+    # Count total chats
+    chat_count_result = await db.execute(select(func.count(Chat.id)))
+    total_chats = chat_count_result.scalar()
+    
+    # Count total messages
+    message_count_result = await db.execute(select(func.count(Message.id)))
+    total_messages = message_count_result.scalar()
+    
+    # Count chats awaiting manager confirmation
+    awaiting_count_result = await db.execute(
+        select(func.count(Chat.id)).filter(Chat.is_awaiting_manager_confirmation == True)
     )
+    awaiting_manager = awaiting_count_result.scalar()
     
-    result = await db.execute(query);
-    messages = result.scalars().all();
-    
-    # Prepare messages in the format expected by the frontend
-    result: List[Dict[str, Any]] = []
-    for msg in messages:
-        if msg.ai:
-            sender = "ai"
-        else:
-            sender = "operator" if getattr(msg, "from_operator", False) else "client"
-        result.append({
-            "id": msg.id,
-            "content": msg.message,
-            "message_type": msg.message_type,
-            "ai": msg.ai,
-            "sender": sender,
-            "timestamp": msg.created_at.isoformat() if msg.created_at else None,
-            "chatId": str(chat_id),
-            "is_image": msg.is_image,
-        })
-    return result
-
-async def add_chat_tag(db: AsyncSession, chat_id: int, tag: str) -> dict:
-    chat = await get_chat(db, chat_id)
-    if not chat:
-        return {"message": "error"}
-    
-    try:
-        # Инициализируем tags как пустой список, если None
-        if chat.tags is None:
-            chat.tags = []
-        
-        # Добавляем тег, если его еще нет
-        if tag not in chat.tags:
-            chat.tags = chat.tags + [tag]  # Создаем новый список для ARRAY
-        
-        await db.commit()
-        await db.refresh(chat)
-        return {"success": True, "tags": chat.tags}
-    except Exception as e:
-        await db.rollback()
-        return {"message": "error"}
-
-async def remove_chat_tag(db: AsyncSession, chat_id: int, tag: str) -> dict:
-    chat = await get_chat(db, chat_id)
-    if not chat:
-        return {"message": "error"}
-    
-    try:
-        # Инициализируем tags как пустой список, если None
-        if chat.tags is None:
-            chat.tags = []
-        
-        # Удаляем тег, если он есть
-        if tag in chat.tags:
-            chat.tags = [t for t in chat.tags if t != tag]  # Создаем новый список без тега
-        
-        await db.commit()
-        await db.refresh(chat)
-        return {"success": True, "tags": chat.tags}
-    except Exception as e:
-        await db.rollback()
-        return {"message": "error"}
+    return {
+        "total_chats": total_chats,
+        "total_messages": total_messages,
+        "awaiting_manager_confirmation": awaiting_manager
+    }
 
 async def delete_chat(db: AsyncSession, chat_id: int) -> bool:
     """Delete a chat and all its messages"""
-    try:
-        # Get the chat
-        chat = await get_chat(db, chat_id)
-        if not chat:
-            return False
-        
-        # Use raw SQL to delete messages first
-        await db.execute(text(f"DELETE FROM messages WHERE chat_id = {chat_id}"))
-        
-        # Delete the chat
+    result = await db.execute(select(Chat).filter(Chat.id == chat_id))
+    chat = result.scalar_one_or_none()
+    
+    if chat:
         await db.delete(chat)
         await db.commit()
         
-        # Invalidate cache
-        try:
-            await cache_service.delete("chats:all")
-            await cache_service.delete("stats:global")
-        except:
-            pass  # Cache might not be available
+        # Clear cache
+        await cache_service.delete("chats:all")
+        await cache_service.delete(f"messages:{chat_id}")
         
-        logging.info(f"Deleted chat {chat_id}")
         return True
-    except Exception as e:
-        await db.rollback()
-        logging.error(f"Error deleting chat {chat_id}: {e}")
-        return False
+    return False

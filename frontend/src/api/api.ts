@@ -1,45 +1,44 @@
 
 import { API_CONFIG, ENDPOINTS } from './config';
 
-// Types for API responses
+// Types for API responses - Updated for n8n workflow
 export interface Chat {
   id: string;
-  name: string;
-  lastMessage: string;
-  timestamp: Date;
-  tags: string[];
-  unreadCount: number;
-  waitingForResponse: boolean;
-  aiEnabled: boolean;
+  user_id: string;
+  is_awaiting_manager_confirmation: boolean;
+  created_at: string;
+  updated_at: string;
+  last_message?: {
+    id: string;
+    message: string;
+    message_type: string;
+    created_at: string;
+  };
 }
 
 export interface Message {
   id: string;
-  chatId: string;
-  content: string;
-  sender: 'user' | 'ai' | 'operator' | 'client';
-  timestamp: Date;
-  type: 'text' | 'image';
-  imageUrl?: string;
+  chat_id: string;
+  message: string;
+  message_type: 'question' | 'answer';
+  created_at: string;
 }
 
 export interface ChatStats {
-  totalChats: number;
-  waitingForResponse: number;
-  aiChats: number;
+  total_chats: number;
+  total_messages: number;
+  awaiting_manager_confirmation: number;
 }
 
-export interface AIContext {
-  systemMessage: string;
-  faqs: string;
-  lastUpdated: Date;
+export interface BotSettings {
+  system_message?: string;
+  faqs?: string;
+  [key: string]: string | undefined;
 }
 
-export interface FAQ {
-  id: string;
-  question: string;
-  answer: string;
-  category: string;
+export interface BotSetting {
+  key: string;
+  value: string;
 }
 
 // Chat operations
@@ -51,36 +50,45 @@ export async function getChats(): Promise<Chat[]> {
     const data = await response.json();
     return data.map((chat: any) => ({
       id: chat.id.toString(),
-      name: chat.name || chat.uuid || 'Unknown',
-      lastMessage: chat.last_message?.content || '',
-      timestamp: chat.last_message?.timestamp ? new Date(chat.last_message.timestamp) : new Date(),
-      tags: chat.tags || [],
-      unreadCount: 0, // Adjust if you have unread logic
-      waitingForResponse: chat.waiting || false,
-      aiEnabled: chat.ai || false,
+      user_id: chat.user_id || 'Unknown',
+      is_awaiting_manager_confirmation: chat.is_awaiting_manager_confirmation || false,
+      created_at: chat.created_at,
+      updated_at: chat.updated_at,
+      last_message: chat.last_message ? {
+        id: chat.last_message.id.toString(),
+        message: chat.last_message.message || '',
+        message_type: chat.last_message.message_type || 'question',
+        created_at: chat.last_message.created_at
+      } : undefined
     }));
   } catch (error) {
     console.warn('Backend not available, using mock data');
     return [
       {
         id: '1',
-        name: 'Telegram Chat 1',
-        lastMessage: 'Hello from Telegram!',
-        timestamp: new Date(),
-        tags: ['telegram'],
-        unreadCount: 0,
-        waitingForResponse: false,
-        aiEnabled: false,
+        user_id: 'user123',
+        is_awaiting_manager_confirmation: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_message: {
+          id: '1',
+          message: 'Hello from user!',
+          message_type: 'question',
+          created_at: new Date().toISOString()
+        }
       },
       {
         id: '2',
-        name: 'AI Chat 2',
-        lastMessage: 'AI response here',
-        timestamp: new Date(),
-        tags: ['ai'],
-        unreadCount: 0,
-        waitingForResponse: false,
-        aiEnabled: true,
+        user_id: 'user456',
+        is_awaiting_manager_confirmation: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_message: {
+          id: '2',
+          message: 'AI response here',
+          message_type: 'answer',
+          created_at: new Date().toISOString()
+        }
       }
     ];
   }
@@ -93,161 +101,166 @@ export async function getMessages(chatId: string): Promise<Message[]> {
   const data = await response.json();
   return data.map((message: any) => ({
     id: message.id.toString(),
-    chatId: message.chat_id.toString(),
-    content: message.message,
-    sender: message.ai ? 'ai' : 'user',
-    timestamp: new Date(message.created_at),
-    type: message.message_type || 'text',
-    imageUrl: message.image_url,
+    chat_id: message.chat_id.toString(),
+    message: message.message,
+    message_type: message.message_type,
+    created_at: message.created_at
   }));
 }
 
-export async function sendMessage(chatId: string, content: string, type: 'text' | 'image' = 'text'): Promise<Message> {
-  const payload = {
-    chat_id: parseInt(chatId),
-    message: content,
-    message_type: type,
-    ai: false,
-    from_operator: true,
-  };
+export async function sendMessage(chatId: string, content: string, messageType: 'question' | 'answer' = 'question'): Promise<Message> {
   const base = API_CONFIG.API_URL || '';
   const response = await fetch(`${base}${ENDPOINTS.MESSAGES}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: parseInt(chatId),
+      message: content,
+      message_type: messageType
+    }),
   });
+  
   if (!response.ok) throw new Error('Failed to send message');
   const data = await response.json();
+  
   return {
     id: data.id.toString(),
-    chatId: data.chat_id.toString(),
-    content: data.message,
-    sender: data.ai ? 'ai' : (data.from_operator ? 'operator' : 'user'),
-    timestamp: new Date(data.created_at),
-    type: data.message_type || 'text',
-    imageUrl: data.image_url,
+    chat_id: data.chat_id.toString(),
+    message: data.message,
+    message_type: data.message_type,
+    created_at: data.created_at
   };
 }
 
-export async function updateChatTags(chatId: string, tags: string[]): Promise<void> {
+export async function createChat(userId: string): Promise<Chat> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.CHATS}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      user_id: userId
+    }),
+  });
+  
+  if (!response.ok) throw new Error('Failed to create chat');
+  const data = await response.json();
+  
+  return {
+    id: data.id.toString(),
+    user_id: data.user_id,
+    is_awaiting_manager_confirmation: data.is_awaiting_manager_confirmation,
+    created_at: data.created_at,
+    updated_at: data.updated_at
+  };
+}
+
+export async function updateChat(chatId: string, updates: { is_awaiting_manager_confirmation?: boolean }): Promise<Chat> {
   const base = API_CONFIG.API_URL || '';
   const response = await fetch(`${base}${ENDPOINTS.CHATS}/${chatId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tags })
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
   });
-  if (!response.ok) throw new Error('Failed to update tags');
+  
+  if (!response.ok) throw new Error('Failed to update chat');
+  const data = await response.json();
+  
+  return {
+    id: data.id.toString(),
+    user_id: data.user_id,
+    is_awaiting_manager_confirmation: data.is_awaiting_manager_confirmation,
+    created_at: data.created_at,
+    updated_at: data.updated_at
+  };
 }
 
 export async function deleteChat(chatId: string): Promise<void> {
   const base = API_CONFIG.API_URL || '';
   const response = await fetch(`${base}${ENDPOINTS.CHATS}/${chatId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
   });
+  
   if (!response.ok) throw new Error('Failed to delete chat');
-}
-
-export async function toggleAI(chatId: string, enabled: boolean): Promise<void> {
-  const response = await fetch(`${API_CONFIG.API_URL}${ENDPOINTS.CHATS}/${chatId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ai: enabled })
-  });
-  if (!response.ok) throw new Error('Failed to toggle AI');
-}
-
-export async function markAsRead(chatId: string): Promise<void> {
-  // TODO: Connect to backend: PUT `${API_CONFIG.API_URL}${ENDPOINTS.MARK_READ}/${chatId}`
-  console.log('API: Marking chat as read:', chatId);
 }
 
 export async function getChatStats(): Promise<ChatStats> {
   try {
     const base = API_CONFIG.API_URL || '';
     const response = await fetch(`${base}${ENDPOINTS.STATS}`);
-    if (!response.ok) throw new Error('Failed to fetch chat stats');
-    return await response.json();
+    if (!response.ok) throw new Error('Failed to fetch stats');
+    const data = await response.json();
+    return {
+      total_chats: data.total_chats || 0,
+      total_messages: data.total_messages || 0,
+      awaiting_manager_confirmation: data.awaiting_manager_confirmation || 0
+    };
   } catch (error) {
     console.warn('Backend not available, using mock stats');
     return {
-      totalChats: 2,
-      waitingForResponse: 0,
-      aiChats: 1,
+      total_chats: 2,
+      total_messages: 10,
+      awaiting_manager_confirmation: 1
     };
   }
 }
 
-export async function getAIContext(): Promise<AIContext> {
-  // TODO: Connect to backend: GET `${API_CONFIG.API_URL}${ENDPOINTS.AI_CONTEXT}`
-  console.log('API: Fetching AI context');
-  return {
-    systemMessage: 'You are a helpful customer service assistant. Be professional and friendly.',
-    faqs: 'Q: How do I reset my password?\nA: Click "Forgot Password" on the login page.',
-    lastUpdated: new Date(),
-  };
+// Bot Settings operations
+export async function getBotSettings(): Promise<BotSettings> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.BOT_SETTINGS}`);
+  if (!response.ok) throw new Error('Failed to fetch bot settings');
+  return await response.json();
 }
 
-export async function updateAIContext(systemMessage: string, faqs: string): Promise<void> {
-  // TODO: Connect to backend: PUT `${API_CONFIG.API_URL}${ENDPOINTS.AI_CONTEXT}`
-  console.log('API: Updating AI context:', systemMessage, faqs);
+export async function getBotSetting(key: string): Promise<BotSetting> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.BOT_SETTINGS}/${key}`);
+  if (!response.ok) throw new Error('Failed to fetch bot setting');
+  return await response.json();
 }
 
-export async function getFAQs(): Promise<FAQ[]> {
-  // TODO: Connect to backend: GET `${API_CONFIG.API_URL}${ENDPOINTS.FAQ}`
-  console.log('API: Fetching FAQs');
+export async function updateBotSetting(key: string, value: string): Promise<BotSetting> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.BOT_SETTINGS}/${key}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ value }),
+  });
   
-  return [
-    {
-      id: '1',
-      question: 'How do I reset my password?',
-      answer: 'You can reset your password by clicking on the "Forgot Password" link on the login page.',
-      category: 'account',
-    },
-    {
-      id: '2',
-      question: 'What are your business hours?',
-      answer: 'We are open Monday through Friday, 9 AM to 6 PM EST.',
-      category: 'general',
-    },
-  ];
+  if (!response.ok) throw new Error('Failed to update bot setting');
+  return await response.json();
 }
 
-export async function updateFAQ(faq: FAQ): Promise<void> {
-  // TODO: Connect to backend: PUT `${API_CONFIG.API_URL}${ENDPOINTS.FAQ}/${faq.id}`
-  console.log('API: Updating FAQ:', faq);
-}
-
-export async function deleteFAQ(faqId: string): Promise<void> {
-  // TODO: Connect to backend: DELETE `${API_CONFIG.API_URL}${ENDPOINTS.FAQ}/${faqId}`
-  console.log('API: Deleting FAQ:', faqId);
-}
-
-// WebSocket connection for real-time updates
+// WebSocket connections
 export function connectMessagesWebSocket(onMessage: (message: Message) => void): WebSocket | null {
-  const base = (API_CONFIG as any).WS_BASE || '';
-  console.log('API: Connecting to WebSocket:', `${base}/ws/messages`);
-  
   try {
-    const ws = new WebSocket(`${base}/ws/messages`);
+    const base = API_CONFIG.API_URL || '';
+    const wsUrl = base.replace('http', 'ws') + ENDPOINTS.WS_MESSAGES;
+    const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
-      console.log('WebSocket connected');
+      console.log('WebSocket connected for messages');
     };
     
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'message') {
-          const message: Message = {
-            id: data.id.toString(),
-            chatId: data.chatId,
-            content: data.content,
-            sender: data.sender,
-            timestamp: new Date(data.timestamp),
-            type: data.message_type || 'text',
-            imageUrl: data.imageUrl,
-          };
-          onMessage(message);
+        if (data.type === 'new_message') {
+          onMessage({
+            id: data.data.id.toString(),
+            chat_id: data.data.chat_id.toString(),
+            message: data.data.message,
+            message_type: data.data.message_type,
+            created_at: data.data.created_at
+          });
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -256,80 +269,69 @@ export function connectMessagesWebSocket(onMessage: (message: Message) => void):
     
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
-      // Don't throw error, just log it to prevent app crashes
     };
     
-    ws.onclose = (event) => {
-      console.log('WebSocket disconnected:', event.code, event.reason);
-      // Attempt to reconnect after a delay if not a normal closure
-      if (event.code !== 1000) {
-        setTimeout(() => {
-          console.log('Attempting to reconnect WebSocket...');
-          connectMessagesWebSocket(onMessage);
-        }, 5000);
-      }
+    ws.onclose = () => {
+      console.log('WebSocket disconnected for messages');
     };
     
     return ws;
   } catch (error) {
     console.error('Failed to connect to WebSocket:', error);
-    // Return null instead of throwing to prevent app crashes
     return null;
   }
 }
 
 export function connectChatUpdatesWebSocket(onChatUpdate: (chat: Chat) => void): WebSocket | null {
-  const base = (API_CONFIG as any).WS_BASE || '';
-  console.log('API: Connecting to chat updates WebSocket:', `${base}/ws/updates`);
-  
   try {
-    const ws = new WebSocket(`${base}/ws/updates`);
+    const base = API_CONFIG.API_URL || '';
+    const wsUrl = base.replace('http', 'ws') + ENDPOINTS.WS_UPDATES;
+    const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
-      console.log('Chat updates WebSocket connected');
+      console.log('WebSocket connected for chat updates');
     };
     
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'chat_update') {
-          const chat: Chat = {
-            id: data.id.toString(),
-            name: data.name || data.uuid || 'Unknown',
-            lastMessage: data.last_message?.content || '',
-            timestamp: data.last_message?.timestamp ? new Date(data.last_message.timestamp) : new Date(),
-            tags: data.tags || [],
-            unreadCount: 0,
-            waitingForResponse: data.waiting || false,
-            aiEnabled: data.ai || false,
-          };
-          onChatUpdate(chat);
+          onChatUpdate({
+            id: data.data.id.toString(),
+            user_id: data.data.user_id,
+            is_awaiting_manager_confirmation: data.data.is_awaiting_manager_confirmation,
+            created_at: data.data.created_at,
+            updated_at: data.data.updated_at
+          });
         }
       } catch (error) {
-        console.error('Error parsing chat update:', error);
+        console.error('Error parsing WebSocket message:', error);
       }
     };
     
     ws.onerror = (error) => {
-      console.error('Chat updates WebSocket error:', error);
-      // Don't throw error, just log it to prevent app crashes
+      console.error('WebSocket error:', error);
     };
     
-    ws.onclose = (event) => {
-      console.log('Chat updates WebSocket disconnected:', event.code, event.reason);
-      // Attempt to reconnect after a delay if not a normal closure
-      if (event.code !== 1000) {
-        setTimeout(() => {
-          console.log('Attempting to reconnect chat updates WebSocket...');
-          connectChatUpdatesWebSocket(onChatUpdate);
-        }, 5000);
-      }
+    ws.onclose = () => {
+      console.log('WebSocket disconnected for chat updates');
     };
     
     return ws;
   } catch (error) {
-    console.error('Failed to connect to chat updates WebSocket:', error);
-    // Return null instead of throwing to prevent app crashes
+    console.error('Failed to connect to WebSocket:', error);
     return null;
+  }
+}
+
+// Health check
+export async function healthCheck(): Promise<boolean> {
+  try {
+    const base = API_CONFIG.API_URL || '';
+    const response = await fetch(`${base}${ENDPOINTS.HEALTH}`);
+    return response.ok;
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return false;
   }
 }
