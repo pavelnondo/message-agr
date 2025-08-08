@@ -335,6 +335,15 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
         
+        # If operator is intervening, disable AI for this chat
+        if msg.from_operator:
+            try:
+                chat.ai = False
+                await db.commit()
+                await db.refresh(chat)
+            except Exception as e:
+                logger.error(f"Failed to disable AI on operator message: {e}")
+
         # Create message
         new_message = await create_message(
             db,
