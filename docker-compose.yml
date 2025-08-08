@@ -19,6 +19,8 @@ services:
     container_name: backend
     build:
       context: ./backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "5678"
     env_file:
