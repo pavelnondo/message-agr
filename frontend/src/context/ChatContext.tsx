@@ -128,11 +128,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Set new timer for 5 minutes (300000ms)
     const timer = setTimeout(async () => {
       try {
-        const selectedChat = state.chats.find(chat => chat.id === chatId);
-        if (selectedChat && !selectedChat.aiEnabled) {
-          await api.toggleAI(chatId, true);
-          dispatch({ type: 'UPDATE_CHAT', payload: { ...selectedChat, aiEnabled: true } });
-        }
+        // AI is considered always ON; no-op
       } catch (error) {
         console.error('Failed to auto-activate AI:', error);
       }
