@@ -23,29 +23,24 @@ export const Sidebar: React.FC = () => {
     });
   }, []);
 
-  const allTags = useMemo(() => {
-    const tags = new Set<string>();
-    state.chats.forEach(chat => {
-      chat.tags.forEach(tag => tags.add(tag));
-    });
-    return Array.from(tags);
-  }, [state.chats]);
+  // Tags are not part of the current backend schema; keep empty list
+  const allTags: string[] = [];
 
   return (
     <div className="sidebar">
       <div className="sidebar-header">
         <div className="stats-dashboard">
           <div className="stat-card">
-            <span className="stat-number">{state.stats.totalChats}</span>
+            <span className="stat-number">{state.stats.total_chats || 0}</span>
             <span className="stat-label">Total Chats</span>
           </div>
           <div className="stat-card">
-            <span className="stat-number">{state.stats.waitingForResponse}</span>
-            <span className="stat-label">Waiting</span>
+            <span className="stat-number">{state.stats.total_messages || 0}</span>
+            <span className="stat-label">Messages</span>
           </div>
           <div className="stat-card">
-            <span className="stat-number">{state.stats.aiChats}</span>
-            <span className="stat-label">AI Enabled</span>
+            <span className="stat-number">{state.stats.awaiting_manager_confirmation || 0}</span>
+            <span className="stat-label">Awaiting Manager</span>
           </div>
         </div>
         <div className="sidebar-header-actions">
