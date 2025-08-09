@@ -443,18 +443,22 @@ async def send_message_to_telegram(chat_id: int, text: str):
             return await response.json()
 
 async def forward_to_n8n(message_data):
-    """Forward message to n8n webhook"""
+    """Forward message to n8n webhook.
+    If the n8n endpoint uses a self-signed certificate, disable SSL verification so forwarding succeeds.
+    """
     if not N8N_WEBHOOK_URL:
         logger.warning("N8N webhook URL not configured")
         return
-    
+
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(N8N_WEBHOOK_URL, json=message_data) as response:
+        connector = aiohttp.TCPConnector(ssl=False) if N8N_WEBHOOK_URL.startswith("https://") else None
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(N8N_WEBHOOK_URL, json=message_data, ssl=False if connector else None) as response:
                 if response.status == 200:
                     logger.info("Message forwarded to n8n successfully")
                 else:
-                    logger.error(f"Failed to forward message to n8n: {response.status}")
+                    text = await response.text()
+                    logger.error(f"Failed to forward message to n8n: {response.status} {text}")
     except Exception as e:
         logger.error(f"Error forwarding to n8n: {e}")
 
@@ -489,21 +493,86 @@ async def rate_limiter(request: Request, call_next):
 
 # Background task for Telegram polling
 async def telegram_polling_task():
-    """Background task for Telegram polling"""
+    """Background task for Telegram polling using getUpdates (fallback when HTTPS webhook is unavailable)."""
     if not TELEGRAM_BOT_TOKEN:
         logger.warning("Telegram bot token not configured, skipping polling")
         return
-    
+
     logger.info("Starting Telegram polling task")
-    
+
+    api_base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    last_update_id: Optional[int] = None
+
     while True:
         try:
-            # Implement Telegram polling logic here
-            # This is a placeholder - implement actual polling
-            await asyncio.sleep(30)  # Poll every 30 seconds
+            params = {"timeout": 25}
+            if last_update_id is not None:
+                params["offset"] = last_update_id + 1
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{api_base}/getUpdates", params=params, timeout=30) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Telegram getUpdates failed: {resp.status}")
+                        await asyncio.sleep(5)
+                        continue
+                    payload = await resp.json()
+                    if not payload.get("ok"):
+                        logger.error(f"Telegram getUpdates returned not ok: {payload}")
+                        await asyncio.sleep(5)
+                        continue
+
+                    for update in payload.get("result", []):
+                        try:
+                            last_update_id = update.get("update_id", last_update_id)
+                            message = update.get("message")
+                            if not message:
+                                continue
+                            chat_obj = message.get("chat", {})
+                            from_obj = message.get("from", {})
+                            chat_id_num = chat_obj.get("id")
+                            from_id_num = from_obj.get("id")
+                            username = from_obj.get("username")
+                            first_name = from_obj.get("first_name")
+                            last_name = from_obj.get("last_name")
+                            chat_title = chat_obj.get("title")
+
+                            display_name_parts = []
+                            if username:
+                                display_name_parts.append(username)
+                            elif first_name or last_name:
+                                display_name_parts.append(" ".join([p for p in [first_name, last_name] if p]))
+                            elif chat_title:
+                                display_name_parts.append(chat_title)
+                            elif from_id_num:
+                                display_name_parts.append(str(from_id_num))
+                            display_id = (display_name_parts[0] if display_name_parts else str(chat_id_num)) + f" [{chat_id_num}]"
+
+                            message_data = {
+                                "chat_id": chat_id_num,
+                                "user_id": display_id,
+                                "text": message.get("text", ""),
+                                "message_id": message.get("message_id"),
+                                "date": message.get("date"),
+                            }
+
+                            await process_telegram_message(message_data)
+
+                            # Forward to n8n if configured
+                            if N8N_WEBHOOK_URL:
+                                await forward_to_n8n({
+                                    "chat_id": message_data["chat_id"],
+                                    "user_id": message_data["user_id"],
+                                    "text": message_data["text"],
+                                    "message_type": "question",
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                })
+                        except Exception as per_update_error:
+                            logger.error(f"Error processing Telegram update: {per_update_error}")
+
+            await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"Error in Telegram polling: {e}")
-            await asyncio.sleep(60)  # Wait longer on error
+            await asyncio.sleep(10)
 
 async def process_telegram_message(message_data: dict):
     """Process incoming Telegram message"""
