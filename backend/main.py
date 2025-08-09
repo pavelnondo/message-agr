@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime
 import json
+import re
 
 from crud import (
     async_session, engine, Base, 
@@ -310,7 +311,24 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
             try:
                 chat = await get_chat(db, msg.chat_id)
                 if chat and chat.user_id:
-                    await send_message_to_telegram(int(chat.user_id), msg.message)
+                    # Extract numeric Telegram chat id from stored user_id
+                    # Supports formats like "username [12345]" or raw numeric id
+                    target_chat_id: Optional[int] = None
+                    try:
+                        # If pure numeric
+                        target_chat_id = int(chat.user_id)
+                    except Exception:
+                        # Try to find digits inside square brackets
+                        match = re.search(r"\[(\-?\d+)\]", chat.user_id)
+                        if match:
+                            try:
+                                target_chat_id = int(match.group(1))
+                            except Exception:
+                                target_chat_id = None
+                    if target_chat_id is not None:
+                        await send_message_to_telegram(target_chat_id, msg.message)
+                    else:
+                        logger.warning(f"Could not determine Telegram chat id from user_id: {chat.user_id}")
             except Exception as te:
                 logger.error(f"Failed to forward answer to Telegram: {te}")
 

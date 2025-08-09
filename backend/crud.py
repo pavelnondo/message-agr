@@ -191,7 +191,8 @@ async def create_message(db: AsyncSession, chat_id: int, message: str, message_t
     message_obj = Message(
         chat_id=chat_id,
         message=message,
-        message_type=message_type
+        # Normalize to the allowed set 'question' | 'answer'
+        message_type='answer' if message_type == 'answer' else 'question'
     )
     db.add(message_obj)
     await db.commit()
