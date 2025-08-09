@@ -145,9 +145,29 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
         
         # Process the webhook data
         if "message" in body:
+            chat_obj = body["message"].get("chat", {})
+            from_obj = body["message"].get("from", {})
+            chat_id_num = chat_obj.get("id")
+            from_id_num = from_obj.get("id")
+            username = from_obj.get("username")
+            first_name = from_obj.get("first_name")
+            last_name = from_obj.get("last_name")
+            chat_title = chat_obj.get("title")
+            # Build a stable, human-friendly display id that includes chat_id
+            display_name_parts = []
+            if username:
+                display_name_parts.append(username)
+            elif first_name or last_name:
+                display_name_parts.append(" ".join([p for p in [first_name, last_name] if p]))
+            elif chat_title:
+                display_name_parts.append(chat_title)
+            elif from_id_num:
+                display_name_parts.append(str(from_id_num))
+            display_id = (display_name_parts[0] if display_name_parts else str(chat_id_num)) + f" [{chat_id_num}]"
+
             message_data = {
-                "chat_id": body["message"]["chat"]["id"],
-                "user_id": str(body["message"]["from"]["id"]),
+                "chat_id": chat_id_num,
+                "user_id": display_id,
                 "text": body["message"].get("text", ""),
                 "message_id": body["message"]["message_id"],
                 "date": body["message"]["date"]
@@ -474,7 +494,8 @@ async def process_telegram_message(message_data: dict):
         
         # Create or get chat for this user
         async with async_session() as db:
-            chat_key = str(message_data.get("chat_id") or message_data.get("user_id"))
+            # Use human-friendly composite id (includes chat id) for stable matching and display
+            chat_key = str(message_data.get("user_id") or message_data.get("chat_id"))
             chat = await get_chat_by_user_id(db, chat_key)
             if not chat:
                 chat = await create_chat(db, chat_key)
