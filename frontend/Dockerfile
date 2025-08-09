@@ -7,14 +7,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with clean, reproducible installs
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build the app
-RUN npm run build
+# Ensure local bins are executable and build the app
+RUN chmod +x node_modules/.bin/* && npm run build
 
 # Runtime stage
 FROM nginx:alpine
