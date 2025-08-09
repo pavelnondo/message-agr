@@ -268,12 +268,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     },
 
-    toggleAI: async (chatId: string, enabled: boolean) => {
-      try {
-        // Not supported in backend yet
-      } catch (error) {
-        dispatch({ type: 'SET_ERROR', payload: 'Failed to toggle AI' });
-      }
+    toggleAI: async (_chatId: string, _enabled: boolean) => {
+      // No-op: AI is always ON by default in UI for now
+      return;
     },
 
     markAsRead: async (chatId: string) => {

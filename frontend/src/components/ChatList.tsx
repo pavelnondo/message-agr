@@ -89,6 +89,10 @@ export const ChatList: React.FC = () => {
               <div className="chat-time">{formatTime(chat.last_message?.created_at || chat.updated_at || chat.created_at)}</div>
             </div>
             <div className="chat-preview">{chat.last_message?.message || ''}</div>
+            <div className="chat-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span />
+              <div className="ai-indicator" style={{ fontSize: '0.75rem', color: '#10b981' }}>AI: ON</div>
+            </div>
           </div>
         ))
       )}
