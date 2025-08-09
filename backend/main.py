@@ -158,7 +158,13 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
             
             # Forward to n8n if configured
             if N8N_WEBHOOK_URL:
-                await forward_to_n8n(message_data)
+                await forward_to_n8n({
+                    "chat_id": message_data["chat_id"],
+                    "user_id": message_data["user_id"],
+                    "text": message_data["text"],
+                    "message_type": "question",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
         
         return {"status": "ok"}
     except Exception as e:
@@ -287,6 +293,19 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
                     await send_message_to_telegram(int(chat.user_id), msg.message)
             except Exception as te:
                 logger.error(f"Failed to forward answer to Telegram: {te}")
+
+        # Forward message event to n8n as well (both question and answer)
+        try:
+            chat = await get_chat(db, msg.chat_id)
+            await forward_to_n8n({
+                "chat_id": msg.chat_id,
+                "user_id": chat.user_id if chat else None,
+                "text": msg.message,
+                "message_type": msg.message_type,
+                "timestamp": datetime.now().isoformat(),
+            })
+        except Exception as e:
+            logger.error(f"Failed to forward message to n8n: {e}")
         
         # Broadcast to WebSocket clients
         message_data = {
@@ -455,9 +474,10 @@ async def process_telegram_message(message_data: dict):
         
         # Create or get chat for this user
         async with async_session() as db:
-            chat = await get_chat_by_user_id(db, message_data["user_id"])
+            chat_key = str(message_data.get("chat_id") or message_data.get("user_id"))
+            chat = await get_chat_by_user_id(db, chat_key)
             if not chat:
-                chat = await create_chat(db, message_data["user_id"])
+                chat = await create_chat(db, chat_key)
             
             # Create message record
             await create_message(
@@ -466,6 +486,18 @@ async def process_telegram_message(message_data: dict):
                 message_data["text"], 
                 "question"
             )
+
+            # Notify websocket listeners about chat updates so frontend can refresh list
+            await manager.broadcast(json.dumps({
+                "type": "chat_update",
+                "data": {
+                    "id": str(chat.id),
+                    "user_id": chat.user_id,
+                    "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
+                    "created_at": chat.created_at.isoformat(),
+                    "updated_at": chat.updated_at.isoformat(),
+                }
+            }))
         
         # Process with AI if needed
         # This would integrate with your AI processing logic

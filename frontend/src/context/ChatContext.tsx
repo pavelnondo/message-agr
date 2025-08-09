@@ -175,6 +175,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 created_at: payload.created_at,
               };
               dispatch({ type: 'ADD_MESSAGE', payload: message });
+
+              // Refresh chats so new chats/messages appear in the sidebar
+              (async () => {
+                try {
+                  const chats = await api.getChats();
+                  dispatch({ type: 'SET_CHATS', payload: chats });
+                } catch (e) {
+                  // ignore refresh errors
+                }
+              })();
             }
           } catch {}
         };
