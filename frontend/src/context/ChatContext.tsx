@@ -240,7 +240,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!state.selectedChatId) return;
       
       try {
-        const message = await api.sendMessage(state.selectedChatId, content);
+        const message = await api.sendMessage(state.selectedChatId, content, 'answer');
         dispatch({ type: 'ADD_MESSAGE', payload: message });
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to send message' });
