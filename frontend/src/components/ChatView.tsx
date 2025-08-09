@@ -2,7 +2,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import { useNotification } from '../context/NotificationContext';
-import { TagEditor } from './TagEditor';
 import { ConfirmDialog } from './ConfirmDialog';
 
 // Styles for sender tags
@@ -64,7 +63,6 @@ export const ChatView: React.FC = () => {
   const { state, actions } = useChat();
   const { showNotification } = useNotification();
   const [messageInput, setMessageInput] = useState('');
-  const [showTagEditor, setShowTagEditor] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -85,8 +83,8 @@ export const ChatView: React.FC = () => {
   const selectedChat = state.chats.find(chat => chat.id === state.selectedChatId);
   
   const filteredMessages = state.messages.filter(message => {
-    if (!message || !message.content) return false;
-    return message.content.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!message || !message.message) return false;
+    return message.message.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   // Improved scroll behavior - DISABLED to prevent reloads
@@ -135,16 +133,7 @@ export const ChatView: React.FC = () => {
     }
   };
 
-  const handleToggleAI = async () => {
-    if (!selectedChat) return;
-    
-    try {
-      await actions.toggleAI(selectedChat.id, !selectedChat.aiEnabled);
-      showNotification('success', `AI Assistant ${selectedChat.aiEnabled ? 'disabled' : 'enabled'}`);
-    } catch (error) {
-      showNotification('error', 'Failed to toggle AI Assistant');
-    }
-  };
+  // AI toggle not supported by backend currently
 
   const handleDeleteChat = async () => {
     if (!selectedChat) return;
@@ -158,26 +147,16 @@ export const ChatView: React.FC = () => {
     }
   };
 
-  const handleTagsUpdate = async (tags: string[]) => {
-    if (!selectedChat) return;
-    
-    try {
-      await actions.updateChatTags(selectedChat.id, tags);
-      setShowTagEditor(false);
-      showNotification('success', 'Tags updated successfully');
-    } catch (error) {
-      showNotification('error', 'Failed to update tags');
-    }
-  };
+  // Tags not supported by backend currently
 
-  const formatTime = (timestamp: Date) => {
+  const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString([], { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
   };
 
-  const formatRelativeTime = (timestamp: Date) => {
+  const formatRelativeTime = (timestamp: string) => {
     const now = new Date();
     const diff = now.getTime() - new Date(timestamp).getTime();
     const minutes = Math.floor(diff / 60000);
@@ -191,58 +170,30 @@ export const ChatView: React.FC = () => {
     return formatTime(timestamp);
   };
 
-  const getMessageSenderDisplay = (sender: string) => {
-    if (!sender) return 'Unknown';
-    switch (sender) {
-      case 'user': return 'You';
-      case 'ai': return 'AI Assistant';
-      case 'operator': return 'Manager';
-      case 'client': return 'Client'; // This will show the user's name from Telegram
-      default: return sender.charAt(0).toUpperCase() + sender.slice(1);
-    }
+  const getMessageSenderDisplay = (message_type: 'question' | 'answer') => {
+    return message_type === 'answer' ? 'AI/Manager' : 'Client';
   };
 
-  const getSenderIcon = (sender: string) => {
-    switch (sender) {
-      case 'user': return '👤';
-      case 'ai': return '🤖';
-      case 'operator': return '👨‍💼';
-      case 'client': return '💬';
-      default: return '��';
-    }
+  const getSenderIcon = (message_type: 'question' | 'answer') => {
+    return message_type === 'answer' ? '🤖' : '💬';
   };
 
   // Get message sender tag for display - AI tag only shows for AI messages
-  const getMessageSenderTag = (sender: string) => {
-    switch (sender) {
-      case 'ai': return 'AI';
-      case 'operator': return ''; // No tag for manager messages
-      case 'user': return ''; // No tag for user messages
-      case 'client': return ''; // No tag for client messages - will show user name instead
-      default: return '';
-    }
+  const getMessageSenderTag = (message_type: 'question' | 'answer') => {
+    return message_type === 'answer' ? 'AI' : '';
   };
 
   // Fixed message alignment: client messages on left, all others on right
-  const getMessageClass = (sender: string) => {
-    switch (sender) {
-      case 'client':
-        return 'message client'; // Left side (Telegram messages)
-      case 'user':
-      case 'ai':
-      case 'operator':
-        return `message ${sender}`; // Right side (our responses)
-      default:
-        return 'message';
-    }
+  const getMessageClass = (message_type: 'question' | 'answer') => {
+    return message_type === 'answer' ? 'message ai' : 'message client';
   };
 
   // Message actions
   const handleReply = (message: any) => {
     setReplyTo({
       id: message.id,
-      content: message.content,
-      sender: message.sender
+      content: message.message,
+      sender: message.message_type
     });
     inputRef.current?.focus();
   };
@@ -338,40 +289,8 @@ export const ChatView: React.FC = () => {
   return (
     <div className="chat-view">
       <div className="chat-view-header">
-        <div>
-          <div className="chat-title">{selectedChat.name}</div>
-          <div className="chat-tags">
-            {selectedChat.tags.map(tag => (
-              <span key={tag} className="chat-tag">
-                {tag}
-              </span>
-            ))}
-          </div>
-
-        </div>
+        <div className="chat-title">{selectedChat.user_id || 'Unknown user'}</div>
         <div className="chat-controls">
-          <div className="ai-control-section">
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={selectedChat.aiEnabled}
-                onChange={handleToggleAI}
-              />
-              <span className="toggle-slider"></span>
-            </label>
-            <span className="text-sm">AI Assistant</span>
-            {countdown > 0 && (
-              <span className="ai-auto-activation-status">
-                Auto-activating in {countdown}m
-              </span>
-            )}
-          </div>
-          <button
-            className="control-button"
-            onClick={() => setShowTagEditor(true)}
-          >
-            Edit Tags
-          </button>
           <button
             className="control-button danger"
             onClick={() => setShowDeleteConfirm(true)}
@@ -441,26 +360,22 @@ export const ChatView: React.FC = () => {
           </div>
         ) : (
           filteredMessages.map(message => (
-            <div key={message.id} className={getMessageClass(message.sender)}>
+            <div key={message.id} className={getMessageClass(message.message_type)}>
               <div className="message-header">
                 <span className="message-sender">
-                  <span className="sender-icon">{getSenderIcon(message.sender)}</span>
-                  {getMessageSenderDisplay(message.sender)}
-                  {getMessageSenderTag(message.sender) && (
-                    <span className="sender-tag">{getMessageSenderTag(message.sender)}</span>
+                  <span className="sender-icon">{getSenderIcon(message.message_type)}</span>
+                  {getMessageSenderDisplay(message.message_type)}
+                  {getMessageSenderTag(message.message_type) && (
+                    <span className="sender-tag">{getMessageSenderTag(message.message_type)}</span>
                   )}
                 </span>
-                <span className="message-time" title={formatTime(message.timestamp)}>
-                  {formatRelativeTime(message.timestamp)}
+                <span className="message-time" title={formatTime(message.created_at)}>
+                  {formatRelativeTime(message.created_at)}
                 </span>
               </div>
               
               <div className="message-content">
-                {message.type === 'image' && message.imageUrl ? (
-                  <img src={message.imageUrl} alt="Message attachment" style={{ maxWidth: '100%', borderRadius: '6px' }} />
-                ) : (
-                  highlightSearchText(message.content, searchQuery)
-                )}
+                {highlightSearchText(message.message, searchQuery)}
                 
                 {/* Message status indicators */}
                 <div className="message-status">
@@ -480,7 +395,7 @@ export const ChatView: React.FC = () => {
                 </button>
                 <button 
                   className="action-button"
-                  onClick={() => handleCopyMessage(message.content)}
+                  onClick={() => handleCopyMessage(message.message)}
                   title="Copy"
                 >
                   📋
@@ -621,18 +536,10 @@ export const ChatView: React.FC = () => {
         )}
       </div>
 
-      {showTagEditor && (
-        <TagEditor
-          initialTags={selectedChat.tags}
-          onSave={handleTagsUpdate}
-          onClose={() => setShowTagEditor(false)}
-        />
-      )}
-
       {showDeleteConfirm && (
         <ConfirmDialog
           title="Delete Chat"
-          message={`Are you sure you want to delete the chat with "${selectedChat.name}"? This action cannot be undone.`}
+          message={`Are you sure you want to delete the chat with "${selectedChat.user_id || 'Unknown user'}"? This action cannot be undone.`}
           onConfirm={handleDeleteChat}
           onCancel={() => setShowDeleteConfirm(false)}
         />

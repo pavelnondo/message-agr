@@ -170,7 +170,8 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
 async def read_chats(db: AsyncSession = Depends(get_db)):
     """Get all chats"""
     try:
-        chats = await get_chats(db)
+        # Return chats with their last message for better frontend preview
+        chats = await get_chats_with_last_messages(db)
         return chats
     except Exception as e:
         logger.error(f"Error getting chats: {e}")
@@ -277,6 +278,15 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
             raise HTTPException(status_code=400, detail="message_type must be 'question' or 'answer'")
         
         new_message = await create_message(db, msg.chat_id, msg.message, msg.message_type)
+
+        # If this is an answer from manager/AI, forward to Telegram client
+        if msg.message_type == 'answer':
+            try:
+                chat = await get_chat(db, msg.chat_id)
+                if chat and chat.user_id:
+                    await send_message_to_telegram(int(chat.user_id), msg.message)
+            except Exception as te:
+                logger.error(f"Failed to forward answer to Telegram: {te}")
         
         # Broadcast to WebSocket clients
         message_data = {

@@ -39,7 +39,7 @@ const initialState: ChatState = {
   chats: [],
   selectedChatId: null,
   messages: [],
-  stats: { totalChats: 0, waitingForResponse: 0, aiChats: 0 },
+  stats: { total_chats: 0, total_messages: 0, awaiting_manager_confirmation: 0 },
   loading: false,
   error: null,
   searchTerm: '',
@@ -166,27 +166,21 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         ws = new WebSocket(`${API_CONFIG.WS_BASE}/ws/messages`);
 
-        ws.onopen = () => {
-          // Connected
-        };
-
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'message') {
+            if (data.type === 'new_message') {
+              const payload = data.data;
               const message: Message = {
-                id: String(data.id ?? Date.now()),
-                chatId: String(data.chatId),
-                content: data.content,
-                sender: data.sender === 'ai' ? 'ai' : data.sender === 'operator' ? 'operator' : 'client',
-                timestamp: new Date(data.timestamp || Date.now()),
-                type: (data.message_type || 'text') as 'text' | 'image',
+                id: String(payload.id),
+                chat_id: String(payload.chat_id),
+                message: payload.message,
+                message_type: payload.message_type,
+                created_at: payload.created_at,
               };
               dispatch({ type: 'ADD_MESSAGE', payload: message });
             }
-          } catch (e) {
-            // ignore parse errors
-          }
+          } catch {}
         };
 
         ws.onclose = () => {
@@ -239,8 +233,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         const messages = await api.getMessages(chatId);
         dispatch({ type: 'SET_MESSAGES', payload: messages });
-        
-        await api.markAsRead(chatId);
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to load messages' });
       } finally {
@@ -252,13 +244,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!state.selectedChatId) return;
       
       try {
-        const message = await api.sendMessage(state.selectedChatId, content, type);
+        const message = await api.sendMessage(state.selectedChatId, content);
         dispatch({ type: 'ADD_MESSAGE', payload: message });
-        
-        // Handle manager message for AI auto-activation
-        if (message.sender === 'operator') {
-          handleManagerMessage();
-        }
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to send message' });
       }
@@ -266,11 +253,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     updateChatTags: async (chatId: string, tags: string[]) => {
       try {
-        await api.updateChatTags(chatId, tags);
-        const updatedChat = state.chats.find(chat => chat.id === chatId);
-        if (updatedChat) {
-          dispatch({ type: 'UPDATE_CHAT', payload: { ...updatedChat, tags } });
-        }
+        // No-op: tags not supported by backend schema currently
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to update tags' });
       }
@@ -287,17 +270,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     toggleAI: async (chatId: string, enabled: boolean) => {
       try {
-        await api.toggleAI(chatId, enabled);
-        const updatedChat = state.chats.find(chat => chat.id === chatId);
-        if (updatedChat) {
-          dispatch({ type: 'UPDATE_CHAT', payload: { ...updatedChat, aiEnabled: enabled } });
-        }
-        
-        // Clear timer if AI is manually enabled
-        if (enabled && state.aiAutoActivationTimer) {
-          clearTimeout(state.aiAutoActivationTimer);
-          dispatch({ type: 'SET_AI_AUTO_ACTIVATION_TIMER', payload: null });
-        }
+        // Not supported in backend yet
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to toggle AI' });
       }
@@ -305,11 +278,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     markAsRead: async (chatId: string) => {
       try {
-        await api.markAsRead(chatId);
-        const updatedChat = state.chats.find(chat => chat.id === chatId);
-        if (updatedChat) {
-          dispatch({ type: 'UPDATE_CHAT', payload: { ...updatedChat, unreadCount: 0 } });
-        }
+        // Not implemented in backend
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to mark as read' });
       }
