@@ -157,6 +157,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let wsUpdates: WebSocket | null = null;
+    let reconnectUpdatesTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
       try {
@@ -201,11 +203,42 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
+    const connectUpdates = () => {
+      try {
+        wsUpdates = new WebSocket(`${API_CONFIG.WS_BASE}/ws/updates`);
+        wsUpdates.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'chat_update') {
+              (async () => {
+                try {
+                  const chats = await api.getChats();
+                  dispatch({ type: 'SET_CHATS', payload: chats });
+                } catch {}
+              })();
+            }
+          } catch {}
+        };
+        wsUpdates.onclose = () => {
+          if (reconnectUpdatesTimer) clearTimeout(reconnectUpdatesTimer);
+          reconnectUpdatesTimer = setTimeout(connectUpdates, 3000);
+        };
+        wsUpdates.onerror = () => {
+          try { wsUpdates && wsUpdates.close(); } catch {}
+        };
+      } catch (e) {
+        reconnectUpdatesTimer = setTimeout(connectUpdates, 3000);
+      }
+    };
+
     connect();
+    connectUpdates();
 
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       try { ws && ws.close(); } catch {}
+      if (reconnectUpdatesTimer) clearTimeout(reconnectUpdatesTimer);
+      try { wsUpdates && wsUpdates.close(); } catch {}
       if (state.aiAutoActivationTimer) {
         clearTimeout(state.aiAutoActivationTimer);
       }
