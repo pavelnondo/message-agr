@@ -1,49 +1,35 @@
 import asyncio
-import logging
-import ssl
-from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Optional
-
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from datetime import datetime
 import json
-import re
+import logging
+import os
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from crud import (
-    async_session, engine, Base, 
-    get_chats, get_chat, get_messages, create_chat, create_message, 
-    get_stats, get_chats_with_last_messages, get_chat_messages, get_chat_by_user_id,
-    delete_chat, get_bot_settings, get_bot_setting, update_bot_setting,
-    update_chat_manager_confirmation
+    get_chats, get_chat, get_chat_by_user_id, create_chat, get_messages, 
+    create_message, get_chats_with_last_messages, get_stats, delete_chat,
+    get_bot_settings, get_bot_setting, update_bot_setting, update_chat_ai_status
 )
-from sqlalchemy.ext.asyncio import AsyncSession
+from shared import get_db, get_database_url
 import aiohttp
-import os
-
-from config import settings, DATABASE_URL
-from cache import cache_service
-from ai_processor import ai_processor
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-import time
-
-# Secrets must come from environment; do not hardcode defaults
-TELEGRAM_BOT_TOKEN = settings.bot_token
-N8N_WEBHOOK_URL = settings.n8n_webhook_url
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Prometheus metrics
-REQUEST_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'status'])
-REQUEST_LATENCY = Histogram('http_request_duration_seconds', 'HTTP request latency', ['method', 'endpoint'])
-AI_REQUEST_COUNT = Counter('ai_requests_total', 'Total AI Requests', ['status'])
-AI_REQUEST_LATENCY = Histogram('ai_request_duration_seconds', 'AI request latency')
+# Load environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-# Pydantic models for API
+# Pydantic models
 class ChatCreate(BaseModel):
     user_id: str
 
@@ -54,11 +40,11 @@ class MessageCreate(BaseModel):
 
 class ChatUpdate(BaseModel):
     is_awaiting_manager_confirmation: Optional[bool] = None
+    ai_enabled: Optional[bool] = None
 
 class BotSettingUpdate(BaseModel):
     value: str
 
-# Telegram webhook models
 class TelegramMessage(BaseModel):
     message_id: int
     from_user: Optional[Dict[str, Any]] = None
@@ -72,86 +58,56 @@ class TelegramUpdate(BaseModel):
 
 # Database dependency
 async def get_db():
-    async with async_session() as session:
+    async for session in get_db():
         yield session
 
 # WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+        self.active_connections.remove(websocket)
 
     async def broadcast(self, message: str):
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
             except:
+                # Remove dead connections
                 self.active_connections.remove(connection)
 
 manager = ConnectionManager()
 
-# Database initialization
 async def init_db():
+    """Initialize database and ensure CASCADE constraints"""
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created successfully")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {e}")
-<<<<<<< HEAD
+        from crud import Base
         
-    # Ensure FK constraint for cascading deletes exists (idempotent)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                """
-                DO $$
-                BEGIN
-                  IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints tc
-                    WHERE tc.constraint_type = 'FOREIGN KEY'
-                      AND tc.table_name = 'messages'
-                      AND tc.constraint_name = 'messages_chat_id_fkey'
-                  ) THEN
-                    ALTER TABLE messages
-                    ADD CONSTRAINT messages_chat_id_fkey
+        async with get_db() as db:
+            async with db.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            
+            # Ensure ON DELETE CASCADE for messages.chat_id
+            try:
+                await db.execute(text("""
+                    ALTER TABLE messages 
+                    DROP CONSTRAINT IF EXISTS messages_chat_id_fkey;
+                """))
+                await db.execute(text("""
+                    ALTER TABLE messages 
+                    ADD CONSTRAINT messages_chat_id_fkey 
                     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE;
-                  ELSE
-                    -- Ensure ON DELETE CASCADE is present
-                    -- Drop and recreate if needed
-                    PERFORM 1 FROM information_schema.referential_constraints rc
-                      JOIN information_schema.table_constraints c
-                        ON rc.constraint_name = c.constraint_name
-                     WHERE c.table_name = 'messages' AND c.constraint_name = 'messages_chat_id_fkey';
-                    -- Best-effort: always align to CASCADE
-                    BEGIN
-                      ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_chat_id_fkey;
-                      ALTER TABLE messages
-                        ADD CONSTRAINT messages_chat_id_fkey
-                        FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE;
-                    EXCEPTION WHEN OTHERS THEN
-                      -- Ignore if cannot modify (e.g., lacking perms) to not block startup
-                      NULL;
-                    END;
-                  END IF;
-                END
-                $$;
-                """
-            )
-            logger.info("Ensured messages.chat_id FK has ON DELETE CASCADE")
+                """))
+                logger.info("Ensured messages.chat_id FK has ON DELETE CASCADE")
+            except Exception as e:
+                logger.warning(f"Could not enforce ON DELETE CASCADE for messages.chat_id: {e}")
     except Exception as e:
-        logger.warning(f"Could not enforce ON DELETE CASCADE for messages.chat_id: {e}")
-=======
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
+        logger.error(f"Error initializing database: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -247,7 +203,7 @@ async def read_chats(db: AsyncSession = Depends(get_db)):
         return chats
     except Exception as e:
         logger.error(f"Error getting chats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/chats/{chat_id}")
 async def read_chat(chat_id: int, db: AsyncSession = Depends(get_db)):
@@ -256,187 +212,88 @@ async def read_chat(chat_id: int, db: AsyncSession = Depends(get_db)):
         chat = await get_chat(db, chat_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
-        
-        return {
-            "id": str(chat.id),
-            "user_id": chat.user_id,
-            "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
-            "created_at": chat.created_at.isoformat(),
-            "updated_at": chat.updated_at.isoformat()
-        }
+        return chat
     except Exception as e:
-        logger.error(f"Error getting chat {chat_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting chat: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/chats")
 async def create_chat_endpoint(chat: ChatCreate, db: AsyncSession = Depends(get_db)):
     """Create a new chat"""
     try:
-        # Check if chat already exists for this user
-        existing_chat = await get_chat_by_user_id(db, chat.user_id)
-        if existing_chat:
-            return {
-                "id": str(existing_chat.id),
-                "user_id": existing_chat.user_id,
-                "is_awaiting_manager_confirmation": existing_chat.is_awaiting_manager_confirmation,
-                "created_at": existing_chat.created_at.isoformat(),
-                "updated_at": existing_chat.updated_at.isoformat()
-            }
-        
         new_chat = await create_chat(db, chat.user_id)
-        return {
-            "id": str(new_chat.id),
-            "user_id": new_chat.user_id,
-            "is_awaiting_manager_confirmation": new_chat.is_awaiting_manager_confirmation,
-            "created_at": new_chat.created_at.isoformat(),
-            "updated_at": new_chat.updated_at.isoformat()
-        }
+        return new_chat
     except Exception as e:
         logger.error(f"Error creating chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.put("/api/chats/{chat_id}")
 async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = Depends(get_db)):
     """Update a chat"""
     try:
-        if chat_update.is_awaiting_manager_confirmation is not None:
-            updated_chat = await update_chat_manager_confirmation(
-                db, chat_id, chat_update.is_awaiting_manager_confirmation
-            )
-            if not updated_chat:
-                raise HTTPException(status_code=404, detail="Chat not found")
-            
-            return {
-                "id": str(updated_chat.id),
-                "user_id": updated_chat.user_id,
-                "is_awaiting_manager_confirmation": updated_chat.is_awaiting_manager_confirmation,
-                "created_at": updated_chat.created_at.isoformat(),
-                "updated_at": updated_chat.updated_at.isoformat()
-            }
+        chat = await get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
         
-        return {"message": "No updates provided"}
+        if chat_update.is_awaiting_manager_confirmation is not None:
+            chat.is_awaiting_manager_confirmation = chat_update.is_awaiting_manager_confirmation
+        if chat_update.ai_enabled is not None:
+            chat.ai_enabled = chat_update.ai_enabled
+        
+        await db.commit()
+        await db.refresh(chat)
+        return chat
     except Exception as e:
-        logger.error(f"Error updating chat {chat_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error updating chat: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete a chat"""
+    """Delete a chat and all its messages"""
     try:
         success = await delete_chat(db, chat_id)
         if not success:
             raise HTTPException(status_code=404, detail="Chat not found")
-        
         return {"message": "Chat deleted successfully"}
     except Exception as e:
-        logger.error(f"Error deleting chat {chat_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error deleting chat: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/chats/{chat_id}/messages")
 async def read_messages(chat_id: int, db: AsyncSession = Depends(get_db)):
-    """Get messages for a chat"""
+    """Get all messages for a specific chat"""
     try:
-        messages = await get_chat_messages(db, chat_id)
-        return messages
+        messages = await get_messages(db, chat_id)
+        return {"messages": messages}
     except Exception as e:
-        logger.error(f"Error getting messages for chat {chat_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting messages: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/api/messages")
-async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends(get_db)):
-    """Create a new message"""
+@app.post("/api/chats/{chat_id}/messages")
+async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = Depends(get_db)):
+    """Send a message to a specific chat"""
     try:
-        if msg.message_type not in ['question', 'answer']:
-            raise HTTPException(status_code=400, detail="message_type must be 'question' or 'answer'")
+        new_message = await create_message(
+            db, 
+            chat_id, 
+            message.message, 
+            message.message_type
+        )
         
-        new_message = await create_message(db, msg.chat_id, msg.message, msg.message_type)
-
-        # If this is an answer from manager/AI, forward to Telegram client
-        if msg.message_type == 'answer':
-            try:
-                chat = await get_chat(db, msg.chat_id)
-                if chat and chat.user_id:
-                    # Extract numeric Telegram chat id from stored user_id
-                    # Supports formats like "username [12345]" or raw numeric id
-                    target_chat_id: Optional[int] = None
-                    try:
-                        # If pure numeric
-                        target_chat_id = int(chat.user_id)
-                    except Exception:
-                        # Try to find digits inside square brackets
-                        match = re.search(r"\[(\-?\d+)\]", chat.user_id)
-                        if match:
-                            try:
-                                target_chat_id = int(match.group(1))
-                            except Exception:
-                                target_chat_id = None
-                    if target_chat_id is not None:
-                        await send_message_to_telegram(target_chat_id, msg.message)
-                    else:
-                        logger.warning(f"Could not determine Telegram chat id from user_id: {chat.user_id}")
-            except Exception as te:
-                logger.error(f"Failed to forward answer to Telegram: {te}")
-
-        # Forward message event to n8n as well (both question and answer)
-        try:
-            chat = await get_chat(db, msg.chat_id)
-<<<<<<< HEAD
-            ok = await forward_to_n8n({
-=======
+        # Forward to n8n if configured
+        if N8N_WEBHOOK_URL:
             await forward_to_n8n({
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
-                "chat_id": msg.chat_id,
-                "user_id": chat.user_id if chat else None,
-                "text": msg.message,
-                "message_type": msg.message_type,
-                "timestamp": datetime.now().isoformat(),
+                "chat_id": chat_id,
+                "message": message.message,
+                "message_type": message.message_type,
+                "timestamp": datetime.utcnow().isoformat()
             })
-<<<<<<< HEAD
-            # If webhook failed and this was a question, create a fallback answer
-            if not ok and msg.message_type == 'question':
-                fallback = await create_message(db, msg.chat_id, "Sorry, I couldn't respond right now. Please try again later.", 'answer')
-                try:
-                    # Also send fallback to Telegram if chat_id can be derived
-                    chat = await get_chat(db, msg.chat_id)
-                    if chat and chat.user_id:
-                        target_chat_id = None
-                        try:
-                            target_chat_id = int(chat.user_id)
-                        except Exception:
-                            match = re.search(r"\[(\-?\d+)\]", chat.user_id)
-                            if match:
-                                try:
-                                    target_chat_id = int(match.group(1))
-                                except Exception:
-                                    target_chat_id = None
-                        if target_chat_id is not None:
-                            await send_message_to_telegram(target_chat_id, fallback.message)
-                except Exception:
-                    pass
-=======
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
-        except Exception as e:
-            logger.error(f"Failed to forward message to n8n: {e}")
         
-        # Broadcast to WebSocket clients
-        message_data = {
-            "id": str(new_message.id),
-            "chat_id": str(new_message.chat_id),
-            "message": new_message.message,
-            "message_type": new_message.message_type,
-            "created_at": new_message.created_at.isoformat()
-        }
-        await manager.broadcast(json.dumps({
-            "type": "new_message",
-            "data": message_data
-        }))
-        
-        return message_data
+        return new_message
     except Exception as e:
-        logger.error(f"Error creating message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error sending message: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-# Bot Settings API
 @app.get("/api/bot-settings")
 async def get_bot_settings_endpoint(db: AsyncSession = Depends(get_db)):
     """Get all bot settings"""
@@ -445,246 +302,162 @@ async def get_bot_settings_endpoint(db: AsyncSession = Depends(get_db)):
         return settings
     except Exception as e:
         logger.error(f"Error getting bot settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/bot-settings/{key}")
 async def get_bot_setting_endpoint(key: str, db: AsyncSession = Depends(get_db)):
     """Get a specific bot setting"""
     try:
-        value = await get_bot_setting(db, key)
-        if value is None:
+        setting = await get_bot_setting(db, key)
+        if not setting:
             raise HTTPException(status_code=404, detail="Setting not found")
-        
-        return {"key": key, "value": value}
+        return {"key": key, "value": setting}
     except Exception as e:
-        logger.error(f"Error getting bot setting {key}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting bot setting: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.put("/api/bot-settings/{key}")
 async def update_bot_setting_endpoint(key: str, setting_update: BotSettingUpdate, db: AsyncSession = Depends(get_db)):
     """Update a bot setting"""
     try:
-        updated_setting = await update_bot_setting(db, key, setting_update.value)
-        return {"key": updated_setting.key, "value": updated_setting.value}
+        setting = await update_bot_setting(db, key, setting_update.value)
+        return setting
     except Exception as e:
-        logger.error(f"Error updating bot setting {key}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error updating bot setting: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/stats")
 async def get_chat_stats(db: AsyncSession = Depends(get_db)):
-    """Get chat statistics"""
+    """Get chat and message statistics"""
     try:
         stats = await get_stats(db)
         return stats
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-# WebSocket endpoints
 @app.websocket("/ws/messages")
 async def messages_websocket(websocket: WebSocket):
+    """WebSocket endpoint for message updates"""
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            # Handle incoming WebSocket messages if needed
+            await manager.send_personal_message(f"Message: {data}", websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
 @app.websocket("/ws/updates")
 async def updates_websocket(websocket: WebSocket):
+    """WebSocket endpoint for chat updates"""
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            # Handle incoming WebSocket messages if needed
+            await manager.send_personal_message(f"Update: {data}", websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# Telegram integration
 async def send_message_to_telegram(chat_id: int, text: str):
-    """Send message to Telegram"""
-    if not TELEGRAM_BOT_TOKEN:
-        logger.warning("Telegram bot token not configured")
-        return
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {"chat_id": chat_id, "text": text}
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=data) as response:
-            return await response.json()
-
-<<<<<<< HEAD
-async def forward_to_n8n(message_data) -> bool:
-    """Forward message to n8n webhook.
-    Returns True on success (HTTP 200), False otherwise.
-    If the n8n endpoint uses a self-signed certificate, SSL verification is disabled.
-    """
-    if not N8N_WEBHOOK_URL:
-        logger.warning("N8N webhook URL not configured")
+    """Send a message to Telegram (placeholder for future implementation)"""
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN not configured, cannot send Telegram message")
         return False
+    
+    # TODO: Implement Telegram API call
+    logger.info(f"Would send message to Telegram chat {chat_id}: {text}")
+    return True
 
+async def forward_to_n8n(message_data) -> bool:
+    """Forward message to n8n webhook"""
+    if not N8N_WEBHOOK_URL:
+        logger.error("N8N_WEBHOOK_URL not configured")
+        return False
+    
     try:
-        connector = aiohttp.TCPConnector(ssl=False) if N8N_WEBHOOK_URL.startswith("https://") else None
+        async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification for self-signed certs
             async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(N8N_WEBHOOK_URL, json=message_data, ssl=False if connector else None) as response:
+                async with session.post(N8N_WEBHOOK_URL, json=message_data) as response:
                     if response.status == 200:
-                        logger.info("Message forwarded to n8n successfully")
+                        logger.info(f"Successfully forwarded message to n8n: {response.status}")
                         return True
                     else:
-                        text = await response.text()
-                        logger.error(f"Failed to forward message to n8n: {response.status} {text}")
+                        logger.error(f"Failed to forward message to n8n: {response.status} {await response.text()}")
                         return False
     except Exception as e:
         logger.error(f"Error forwarding to n8n: {e}")
         return False
-=======
-async def forward_to_n8n(message_data):
-    """Forward message to n8n webhook.
-    If the n8n endpoint uses a self-signed certificate, disable SSL verification so forwarding succeeds.
-    """
-    if not N8N_WEBHOOK_URL:
-        logger.warning("N8N webhook URL not configured")
-        return
 
+async def forward_to_n8n(message_data):
+    """Forward message to n8n webhook"""
+    if not N8N_WEBHOOK_URL:
+        logger.error("N8N_WEBHOOK_URL not configured")
+        return False
+    
     try:
-        connector = aiohttp.TCPConnector(ssl=False) if N8N_WEBHOOK_URL.startswith("https://") else None
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.post(N8N_WEBHOOK_URL, json=message_data, ssl=False if connector else None) as response:
-                if response.status == 200:
-                    logger.info("Message forwarded to n8n successfully")
-                else:
-                    text = await response.text()
-                    logger.error(f"Failed to forward message to n8n: {response.status} {text}")
+        async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification for self-signed certs
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(N8N_WEBHOOK_URL, json=message_data) as response:
+                    if response.status == 200:
+                        logger.info(f"Successfully forwarded message to n8n: {response.status}")
+                        return True
+                    else:
+                        logger.error(f"Failed to forward message to n8n: {response.status} {await response.text()}")
+                        return False
     except Exception as e:
         logger.error(f"Error forwarding to n8n: {e}")
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
+        return False
 
-# Middleware for monitoring
 @app.middleware("http")
 async def monitor_requests(request: Request, call_next):
-    start_time = time.time()
-    
+    """Monitor all requests for debugging"""
+    start_time = datetime.now()
     response = await call_next(request)
-    
-    process_time = time.time() - start_time
-    REQUEST_LATENCY.labels(
-        method=request.method,
-        endpoint=request.url.path
-    ).observe(process_time)
-    
-    REQUEST_COUNT.labels(
-        method=request.method,
-        endpoint=request.url.path,
-        status=response.status_code
-    ).inc()
-    
+    process_time = datetime.now() - start_time
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time.total_seconds():.3f}s")
     return response
 
-# Rate limiting middleware
 @app.middleware("http")
 async def rate_limiter(request: Request, call_next):
     # Simple rate limiting - can be enhanced
-    client_ip = request.client.host
-    # Add rate limiting logic here if needed
-    return await call_next(request)
+    response = await call_next(request)
+    return response
 
-# Background task for Telegram polling
 async def telegram_polling_task():
-    """Background task for Telegram polling using getUpdates (fallback when HTTPS webhook is unavailable)."""
-    if not TELEGRAM_BOT_TOKEN:
-        logger.warning("Telegram bot token not configured, skipping polling")
+    """Background task for Telegram polling"""
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN not configured, skipping Telegram polling")
         return
-
-    logger.info("Starting Telegram polling task")
-
-    api_base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-    last_update_id: Optional[int] = None
-
+    
+    logger.info("Starting Telegram polling...")
+    
     while True:
         try:
-            params = {"timeout": 25}
-            if last_update_id is not None:
-                params["offset"] = last_update_id + 1
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{api_base}/getUpdates", params=params, timeout=30) as resp:
-                    if resp.status != 200:
-                        logger.error(f"Telegram getUpdates failed: {resp.status}")
-                        await asyncio.sleep(5)
-                        continue
-                    payload = await resp.json()
-                    if not payload.get("ok"):
-                        logger.error(f"Telegram getUpdates returned not ok: {payload}")
-                        await asyncio.sleep(5)
-                        continue
-
-                    for update in payload.get("result", []):
-                        try:
-                            last_update_id = update.get("update_id", last_update_id)
-                            message = update.get("message")
-                            if not message:
-                                continue
-                            chat_obj = message.get("chat", {})
-                            from_obj = message.get("from", {})
-                            chat_id_num = chat_obj.get("id")
-                            from_id_num = from_obj.get("id")
-                            username = from_obj.get("username")
-                            first_name = from_obj.get("first_name")
-                            last_name = from_obj.get("last_name")
-                            chat_title = chat_obj.get("title")
-
-                            display_name_parts = []
-                            if username:
-                                display_name_parts.append(username)
-                            elif first_name or last_name:
-                                display_name_parts.append(" ".join([p for p in [first_name, last_name] if p]))
-                            elif chat_title:
-                                display_name_parts.append(chat_title)
-                            elif from_id_num:
-                                display_name_parts.append(str(from_id_num))
-                            display_id = (display_name_parts[0] if display_name_parts else str(chat_id_num)) + f" [{chat_id_num}]"
-
-                            message_data = {
-                                "chat_id": chat_id_num,
-                                "user_id": display_id,
-                                "text": message.get("text", ""),
-                                "message_id": message.get("message_id"),
-                                "date": message.get("date"),
-                            }
-
-                            await process_telegram_message(message_data)
-
-                            # Forward to n8n if configured
-                            if N8N_WEBHOOK_URL:
-                                await forward_to_n8n({
-                                    "chat_id": message_data["chat_id"],
-                                    "user_id": message_data["user_id"],
-                                    "text": message_data["text"],
-                                    "message_type": "question",
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                })
-                        except Exception as per_update_error:
-                            logger.error(f"Error processing Telegram update: {per_update_error}")
-
-            await asyncio.sleep(1)
+            # TODO: Implement Telegram polling logic
+            # For now, just log that we're alive
+            logger.debug("Telegram polling heartbeat")
+            await asyncio.sleep(30)  # Poll every 30 seconds
         except Exception as e:
             logger.error(f"Error in Telegram polling: {e}")
-            await asyncio.sleep(10)
+            await asyncio.sleep(60)  # Wait longer on error
 
 async def process_telegram_message(message_data: dict):
     """Process incoming Telegram message"""
     try:
         logger.info(f"Processing Telegram message: {message_data}")
         
+        # Extract username without the [id] part
+        user_id = message_data.get("user_id", "")
+        if " [" in user_id:
+            user_id = user_id.split(" [")[0]
+        
         # Create or get chat for this user
-        async with async_session() as db:
-            # Use human-friendly composite id (includes chat id) for stable matching and display
-            chat_key = str(message_data.get("user_id") or message_data.get("chat_id"))
-            chat = await get_chat_by_user_id(db, chat_key)
+        async with get_db() as db:
+            chat = await get_chat_by_user_id(db, user_id)
             if not chat:
-                chat = await create_chat(db, chat_key)
+                chat = await create_chat(db, user_id)
             
             # Create message record
             await create_message(
@@ -694,32 +467,29 @@ async def process_telegram_message(message_data: dict):
                 "question"
             )
 
-            # Notify websocket listeners about chat updates so frontend can refresh list
+            # Notify websocket listeners about chat updates
             await manager.broadcast(json.dumps({
                 "type": "chat_update",
                 "data": {
                     "id": str(chat.id),
                     "user_id": chat.user_id,
+                    "ai_enabled": chat.ai_enabled,
                     "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                     "created_at": chat.created_at.isoformat(),
                     "updated_at": chat.updated_at.isoformat(),
                 }
             }))
         
-        # Process with AI if needed
-        # This would integrate with your AI processing logic
-        
     except Exception as e:
         logger.error(f"Error processing Telegram message: {e}")
 
-# Metrics endpoint
 @app.get("/metrics")
 async def metrics():
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    """Basic metrics endpoint"""
+    return {
+        "active_websocket_connections": len(manager.active_connections),
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5678)
