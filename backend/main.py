@@ -268,7 +268,8 @@ async def read_messages(chat_id: int, db: AsyncSession = Depends(get_db)):
     """Get all messages for a specific chat"""
     try:
         messages = await get_messages(db, chat_id)
-        return {"messages": messages}
+        # Return a plain list for simplicity; frontend can accept both
+        return messages
     except Exception as e:
         logger.error(f"Error getting messages: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -284,6 +285,18 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
             message.message_type
         )
         
+        # Broadcast new message to websockets with full payload
+        await manager.broadcast(json.dumps({
+            "type": "new_message",
+            "data": {
+                "id": str(new_message.id),
+                "chat_id": str(new_message.chat_id),
+                "message": new_message.message,
+                "message_type": new_message.message_type,
+                "created_at": new_message.created_at.isoformat(),
+            }
+        }))
+
         # Forward to n8n if configured
         if N8N_WEBHOOK_URL:
             await forward_to_n8n({
@@ -368,9 +381,21 @@ async def send_message_to_telegram(chat_id: int, text: str):
         logger.warning("BOT_TOKEN not configured, cannot send Telegram message")
         return False
     
-    # TODO: Implement Telegram API call
-    logger.info(f"Would send message to Telegram chat {chat_id}: {text}")
-    return True
+    try:
+        api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload) as resp:
+                if resp.status == 200:
+                    logger.info("Sent message to Telegram")
+                    return True
+                else:
+                    body = await resp.text()
+                    logger.error(f"Failed to send Telegram message: {resp.status} {body}")
+                    return False
+    except Exception as e:
+        logger.error(f"Error sending Telegram message: {e}")
+        return False
 
 async def forward_to_n8n(message_data) -> bool:
     """Forward message to n8n webhook and handle response"""
@@ -428,8 +453,10 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                         "answer"
                     )
                     
-                    # Send response to Telegram
-                    await send_message_to_telegram(chat.id, answer)
+                    # Send response to Telegram using original Telegram chat id when available
+                    telegram_chat_id = original_message.get("chat_id")
+                    if telegram_chat_id is not None:
+                        await send_message_to_telegram(int(telegram_chat_id), answer)
                     
                     # Notify frontend about new AI response
                     await manager.broadcast(json.dumps({

@@ -100,6 +100,7 @@ interface ChatContextType {
     loadChats: () => Promise<void>;
     selectChat: (chatId: string) => Promise<void>;
     sendMessage: (content: string, type?: 'text' | 'image') => Promise<void>;
+    updateChat: (chatId: string, updates: { ai_enabled?: boolean; is_awaiting_manager_confirmation?: boolean }) => Promise<void>;
     updateChatTags: (chatId: string, tags: string[]) => Promise<void>;
     deleteChat: (chatId: string) => Promise<void>;
     toggleAI: (chatId: string, enabled: boolean) => Promise<void>;
@@ -168,15 +169,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'new_message') {
-              const payload = data.data;
+              const payload = data.data || {};
               const message: Message = {
-                id: String(payload.id),
+                id: String(payload.id || `${Date.now()}`),
                 chat_id: String(payload.chat_id),
                 message: payload.message,
                 message_type: payload.message_type,
-                created_at: payload.created_at,
+                created_at: payload.created_at || new Date().toISOString(),
               };
-              dispatch({ type: 'ADD_MESSAGE', payload: message });
+              if (message.chat_id && message.message) {
+                dispatch({ type: 'ADD_MESSAGE', payload: message });
+              }
 
               // Refresh chats so new chats/messages appear in the sidebar
               (async () => {
@@ -287,6 +290,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await api.sendMessage(state.selectedChatId, content, 'answer');
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to send message' });
+      }
+    },
+
+    updateChat: async (chatId: string, updates: { ai_enabled?: boolean; is_awaiting_manager_confirmation?: boolean }) => {
+      try {
+        const updated = await api.updateChat(chatId, updates);
+        dispatch({ type: 'UPDATE_CHAT', payload: updated });
+      } catch (error) {
+        dispatch({ type: 'SET_ERROR', payload: 'Failed to update chat' });
       }
     },
 

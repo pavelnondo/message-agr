@@ -23,6 +23,7 @@ sudo -u postgres psql -d message_aggregator -c "
 CREATE TABLE IF NOT EXISTS chats (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(100),
+    ai_enabled BOOLEAN DEFAULT TRUE,
     is_awaiting_manager_confirmation BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
