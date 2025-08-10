@@ -1,17 +1,11 @@
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useChat } from '../context/ChatContext';
 import { useNotification } from '../context/NotificationContext';
 
 export const ChatList: React.FC = () => {
   const { state, actions } = useChat();
   const { showNotification } = useNotification();
-
-  useEffect(() => {
-    actions.loadChats().catch(() => {
-      showNotification('error', 'Failed to load chats');
-    });
-  }, []);
 
   const filteredChats = useMemo(() => {
     let filtered = state.chats;
@@ -39,6 +33,18 @@ export const ChatList: React.FC = () => {
       await actions.selectChat(chatId);
     } catch (error) {
       showNotification('error', 'Failed to load chat');
+    }
+  };
+
+  const handleAIToggle = async (chatId: string, currentAIStatus: boolean) => {
+    try {
+      await actions.updateChat(chatId, { 
+        ai_enabled: !currentAIStatus,
+        is_awaiting_manager_confirmation: !currentAIStatus 
+      });
+      showNotification('success', `AI ${!currentAIStatus ? 'enabled' : 'disabled'} for this chat`);
+    } catch (error) {
+      showNotification('error', 'Failed to toggle AI status');
     }
   };
 
@@ -93,7 +99,56 @@ export const ChatList: React.FC = () => {
               <div style={{ fontSize: '0.75rem', color: '#374151' }}>
                 {typeof (chat as any).message_count === 'number' ? (chat as any).message_count : ''}
               </div>
-              <div className="ai-indicator" style={{ fontSize: '0.75rem', color: '#10b981' }}>AI: ON</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Show AI indicator only when AI is enabled */}
+                {chat.ai_enabled && (
+                  <div 
+                    className="ai-indicator"
+                    style={{ 
+                      fontSize: '0.75rem', 
+                      color: '#10b981',
+                      backgroundColor: '#d1fae5',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    AI
+                  </div>
+                )}
+                {/* Show waiting indicator when AI is disabled and waiting for manager */}
+                {!chat.ai_enabled && chat.is_awaiting_manager_confirmation && (
+                  <div 
+                    className="waiting-indicator"
+                    style={{ 
+                      fontSize: '0.75rem', 
+                      color: '#f59e0b',
+                      backgroundColor: '#fef3c7',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    WAITING
+                  </div>
+                )}
+                {/* AI Toggle Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAIToggle(chat.id, chat.ai_enabled);
+                  }}
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db',
+                    backgroundColor: chat.ai_enabled ? '#10b981' : '#6b7280',
+                    color: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {chat.ai_enabled ? 'AI ON' : 'AI OFF'}
+                </button>
+              </div>
             </div>
           </div>
         ))
