@@ -10,7 +10,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import text
 
 from crud import (
@@ -18,7 +18,7 @@ from crud import (
     create_message, get_chats_with_last_messages, get_stats, delete_chat,
     get_bot_settings, get_bot_setting, update_bot_setting, update_chat_ai_status
 )
-from shared import get_db, get_database_url
+from shared import get_database_url
 import aiohttp
 
 # Configure logging
@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
+
+# Create async engine and session
+DATABASE_URL = get_database_url()
+engine = create_async_engine(DATABASE_URL, echo=False)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Pydantic models
 class ChatCreate(BaseModel):
@@ -58,7 +63,7 @@ class TelegramUpdate(BaseModel):
 
 # Database dependency
 async def get_db():
-    async for session in get_db():
+    async with AsyncSessionLocal() as session:
         yield session
 
 # WebSocket connection manager
@@ -88,17 +93,16 @@ async def init_db():
     try:
         from crud import Base
         
-        async with get_db() as db:
-            async with db.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
             
             # Ensure ON DELETE CASCADE for messages.chat_id
             try:
-                await db.execute(text("""
+                await conn.execute(text("""
                     ALTER TABLE messages 
                     DROP CONSTRAINT IF EXISTS messages_chat_id_fkey;
                 """))
-                await db.execute(text("""
+                await conn.execute(text("""
                     ALTER TABLE messages 
                     ADD CONSTRAINT messages_chat_id_fkey 
                     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE;
@@ -389,27 +393,6 @@ async def forward_to_n8n(message_data) -> bool:
         logger.error(f"Error forwarding to n8n: {e}")
         return False
 
-async def forward_to_n8n(message_data):
-    """Forward message to n8n webhook"""
-    if not N8N_WEBHOOK_URL:
-        logger.error("N8N_WEBHOOK_URL not configured")
-        return False
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification for self-signed certs
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(N8N_WEBHOOK_URL, json=message_data) as response:
-                    if response.status == 200:
-                        logger.info(f"Successfully forwarded message to n8n: {response.status}")
-                        return True
-                    else:
-                        logger.error(f"Failed to forward message to n8n: {response.status} {await response.text()}")
-                        return False
-    except Exception as e:
-        logger.error(f"Error forwarding to n8n: {e}")
-        return False
-
 @app.middleware("http")
 async def monitor_requests(request: Request, call_next):
     """Monitor all requests for debugging"""
@@ -454,7 +437,7 @@ async def process_telegram_message(message_data: dict):
             user_id = user_id.split(" [")[0]
         
         # Create or get chat for this user
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
             chat = await get_chat_by_user_id(db, user_id)
             if not chat:
                 chat = await create_chat(db, user_id)
