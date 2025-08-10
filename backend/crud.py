@@ -40,12 +40,16 @@ class Chat(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(BigInteger, primary_key=True, index=True)
+<<<<<<< HEAD
     # Ensure referential integrity and cascading deletes when a chat is removed
     chat_id = Column(
         BigInteger,
         ForeignKey("chats.id", ondelete="CASCADE"),
         nullable=False,
     )
+=======
+    chat_id = Column(BigInteger, ForeignKey("chats.id"), nullable=False)
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
     message = Column(Text, nullable=False)
     message_type = Column(String(10), nullable=False)  # 'question' or 'answer'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -173,12 +177,19 @@ async def get_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, Any]]:
     # Convert to dict format
     message_list = []
     for message in messages:
+<<<<<<< HEAD
         normalized_type = 'answer' if message.message_type == 'answer' else 'question'
+=======
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
         message_dict = {
             "id": str(message.id),
             "chat_id": str(message.chat_id),
             "message": message.message,
+<<<<<<< HEAD
             "message_type": normalized_type,
+=======
+            "message_type": message.message_type,
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
             "created_at": message.created_at.isoformat()
         }
         message_list.append(message_dict)
@@ -214,6 +225,7 @@ async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, An
     return await get_messages(db, chat_id)
 
 async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> List[Dict[str, Any]]:
+<<<<<<< HEAD
     """Get chats with their last message and total message count per chat"""
     query = text(
         """
@@ -248,11 +260,33 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
     for row in rows:
         last_type = row[7] if row[7] == "answer" else ("question" if row[5] else None)
         chat_dict: Dict[str, Any] = {
+=======
+    """Get chats with their last message"""
+    # This is a complex query that gets the last message for each chat
+    query = text("""
+        SELECT DISTINCT ON (c.id) 
+            c.id, c.user_id, c.is_awaiting_manager_confirmation, 
+            c.created_at, c.updated_at,
+            m.id as message_id, m.message, m.message_type, m.created_at as message_created_at
+        FROM chats c
+        LEFT JOIN messages m ON c.id = m.chat_id
+        ORDER BY c.id, m.created_at DESC
+        LIMIT :limit
+    """)
+    
+    result = await db.execute(query, {"limit": limit})
+    rows = result.fetchall()
+    
+    chat_list = []
+    for row in rows:
+        chat_dict = {
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
             "id": str(row[0]),
             "user_id": row[1],
             "is_awaiting_manager_confirmation": row[2],
             "created_at": row[3].isoformat() if row[3] else None,
             "updated_at": row[4].isoformat() if row[4] else None,
+<<<<<<< HEAD
             "message_count": int(row[9] or 0),
             "last_message": (
                 {
@@ -267,6 +301,17 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         }
         chat_list.append(chat_dict)
 
+=======
+            "last_message": {
+                "id": str(row[5]) if row[5] else None,
+                "message": row[6] if row[6] else None,
+                "message_type": row[7] if row[7] else None,
+                "created_at": row[8].isoformat() if row[8] else None
+            } if row[5] else None
+        }
+        chat_list.append(chat_dict)
+    
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
     return chat_list
 
 async def get_stats(db: AsyncSession) -> Dict[str, int]:

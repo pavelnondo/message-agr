@@ -35,7 +35,11 @@ CREATE TABLE IF NOT EXISTS chats (
 -- This table stores the conversation history between users and the AI.
 CREATE TABLE IF NOT EXISTS messages (
     id BIGSERIAL PRIMARY KEY,
+<<<<<<< HEAD
     chat_id BIGINT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+=======
+    chat_id BIGINT NOT NULL REFERENCES chats(id),
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
     message TEXT NOT NULL,
     message_type VARCHAR(10) NOT NULL CHECK (message_type IN ('question', 'answer')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

@@ -107,6 +107,7 @@ async def init_db():
         logger.info("Database tables created successfully")
     except Exception as e:
         logger.error(f"Error creating database tables: {e}")
+<<<<<<< HEAD
         
     # Ensure FK constraint for cascading deletes exists (idempotent)
     try:
@@ -149,6 +150,8 @@ async def init_db():
             logger.info("Ensured messages.chat_id FK has ON DELETE CASCADE")
     except Exception as e:
         logger.warning(f"Could not enforce ON DELETE CASCADE for messages.chat_id: {e}")
+=======
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -377,13 +380,18 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
         # Forward message event to n8n as well (both question and answer)
         try:
             chat = await get_chat(db, msg.chat_id)
+<<<<<<< HEAD
             ok = await forward_to_n8n({
+=======
+            await forward_to_n8n({
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
                 "chat_id": msg.chat_id,
                 "user_id": chat.user_id if chat else None,
                 "text": msg.message,
                 "message_type": msg.message_type,
                 "timestamp": datetime.now().isoformat(),
             })
+<<<<<<< HEAD
             # If webhook failed and this was a question, create a fallback answer
             if not ok and msg.message_type == 'question':
                 fallback = await create_message(db, msg.chat_id, "Sorry, I couldn't respond right now. Please try again later.", 'answer')
@@ -405,6 +413,8 @@ async def create_message_endpoint(msg: MessageCreate, db: AsyncSession = Depends
                             await send_message_to_telegram(target_chat_id, fallback.message)
                 except Exception:
                     pass
+=======
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
         except Exception as e:
             logger.error(f"Failed to forward message to n8n: {e}")
         
@@ -505,6 +515,7 @@ async def send_message_to_telegram(chat_id: int, text: str):
         async with session.post(url, json=data) as response:
             return await response.json()
 
+<<<<<<< HEAD
 async def forward_to_n8n(message_data) -> bool:
     """Forward message to n8n webhook.
     Returns True on success (HTTP 200), False otherwise.
@@ -528,6 +539,27 @@ async def forward_to_n8n(message_data) -> bool:
     except Exception as e:
         logger.error(f"Error forwarding to n8n: {e}")
         return False
+=======
+async def forward_to_n8n(message_data):
+    """Forward message to n8n webhook.
+    If the n8n endpoint uses a self-signed certificate, disable SSL verification so forwarding succeeds.
+    """
+    if not N8N_WEBHOOK_URL:
+        logger.warning("N8N webhook URL not configured")
+        return
+
+    try:
+        connector = aiohttp.TCPConnector(ssl=False) if N8N_WEBHOOK_URL.startswith("https://") else None
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(N8N_WEBHOOK_URL, json=message_data, ssl=False if connector else None) as response:
+                if response.status == 200:
+                    logger.info("Message forwarded to n8n successfully")
+                else:
+                    text = await response.text()
+                    logger.error(f"Failed to forward message to n8n: {response.status} {text}")
+    except Exception as e:
+        logger.error(f"Error forwarding to n8n: {e}")
+>>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
 
 # Middleware for monitoring
 @app.middleware("http")
