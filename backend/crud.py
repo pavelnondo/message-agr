@@ -32,6 +32,7 @@ class Chat(Base):
     __tablename__ = "chats"
     id = Column(BigInteger, primary_key=True, index=True)
     user_id = Column(String(100))
+    ai_enabled = Column(Boolean, default=True)  # AI is ON by default
     is_awaiting_manager_confirmation = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -40,16 +41,12 @@ class Chat(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(BigInteger, primary_key=True, index=True)
-<<<<<<< HEAD
     # Ensure referential integrity and cascading deletes when a chat is removed
     chat_id = Column(
         BigInteger,
         ForeignKey("chats.id", ondelete="CASCADE"),
         nullable=False,
     )
-=======
-    chat_id = Column(BigInteger, ForeignKey("chats.id"), nullable=False)
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
     message = Column(Text, nullable=False)
     message_type = Column(String(10), nullable=False)  # 'question' or 'answer'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -157,7 +154,7 @@ async def update_chat_manager_confirmation(db: AsyncSession, chat_id: int, is_aw
 
 # CRUD operations for messages
 async def get_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, Any]]:
-    """Get messages for a chat with caching"""
+    """Get all messages for a specific chat with caching"""
     cache_key = f"messages:{chat_id}"
     
     # Try cache first
@@ -177,19 +174,12 @@ async def get_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, Any]]:
     # Convert to dict format
     message_list = []
     for message in messages:
-<<<<<<< HEAD
         normalized_type = 'answer' if message.message_type == 'answer' else 'question'
-=======
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
         message_dict = {
             "id": str(message.id),
             "chat_id": str(message.chat_id),
             "message": message.message,
-<<<<<<< HEAD
             "message_type": normalized_type,
-=======
-            "message_type": message.message_type,
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
             "created_at": message.created_at.isoformat()
         }
         message_list.append(message_dict)
@@ -225,13 +215,13 @@ async def get_chat_messages(db: AsyncSession, chat_id: int) -> List[Dict[str, An
     return await get_messages(db, chat_id)
 
 async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> List[Dict[str, Any]]:
-<<<<<<< HEAD
     """Get chats with their last message and total message count per chat"""
     query = text(
         """
         SELECT
           c.id,
           c.user_id,
+          c.ai_enabled,
           c.is_awaiting_manager_confirmation,
           c.created_at,
           c.updated_at,
@@ -258,61 +248,44 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
 
     chat_list: List[Dict[str, Any]] = []
     for row in rows:
-        last_type = row[7] if row[7] == "answer" else ("question" if row[5] else None)
+        last_type = row[8] if row[8] == "answer" else ("question" if row[6] else None)
         chat_dict: Dict[str, Any] = {
-=======
-    """Get chats with their last message"""
-    # This is a complex query that gets the last message for each chat
-    query = text("""
-        SELECT DISTINCT ON (c.id) 
-            c.id, c.user_id, c.is_awaiting_manager_confirmation, 
-            c.created_at, c.updated_at,
-            m.id as message_id, m.message, m.message_type, m.created_at as message_created_at
-        FROM chats c
-        LEFT JOIN messages m ON c.id = m.chat_id
-        ORDER BY c.id, m.created_at DESC
-        LIMIT :limit
-    """)
-    
-    result = await db.execute(query, {"limit": limit})
-    rows = result.fetchall()
-    
-    chat_list = []
-    for row in rows:
-        chat_dict = {
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
             "id": str(row[0]),
             "user_id": row[1],
-            "is_awaiting_manager_confirmation": row[2],
-            "created_at": row[3].isoformat() if row[3] else None,
-            "updated_at": row[4].isoformat() if row[4] else None,
-<<<<<<< HEAD
-            "message_count": int(row[9] or 0),
+            "ai_enabled": row[2],
+            "is_awaiting_manager_confirmation": row[3],
+            "created_at": row[4].isoformat() if row[4] else None,
+            "updated_at": row[5].isoformat() if row[5] else None,
+            "message_count": int(row[10] or 0),
             "last_message": (
                 {
-                    "id": str(row[5]) if row[5] else None,
-                    "message": row[6] if row[6] else None,
+                    "id": str(row[6]) if row[6] else None,
+                    "message": row[7] if row[7] else None,
                     "message_type": last_type,
-                    "created_at": row[8].isoformat() if row[8] else None,
+                    "created_at": row[9].isoformat() if row[9] else None,
                 }
-                if row[5]
+                if row[6]
                 else None
             ),
         }
         chat_list.append(chat_dict)
 
-=======
-            "last_message": {
-                "id": str(row[5]) if row[5] else None,
-                "message": row[6] if row[6] else None,
-                "message_type": row[7] if row[7] else None,
-                "created_at": row[8].isoformat() if row[8] else None
-            } if row[5] else None
-        }
-        chat_list.append(chat_dict)
-    
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
     return chat_list
+
+async def update_chat_ai_status(db: AsyncSession, chat_id: int, ai_enabled: bool):
+    """Update AI enabled status for a chat"""
+    result = await db.execute(select(Chat).filter(Chat.id == chat_id))
+    chat = result.scalar_one_or_none()
+    
+    if chat:
+        chat.ai_enabled = ai_enabled
+        # When AI is disabled, set waiting to true
+        if not ai_enabled:
+            chat.is_awaiting_manager_confirmation = True
+        await db.commit()
+        await db.refresh(chat)
+        return chat
+    return None
 
 async def get_stats(db: AsyncSession) -> Dict[str, int]:
     """Get chat and message statistics"""

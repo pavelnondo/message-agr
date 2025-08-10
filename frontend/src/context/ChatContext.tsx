@@ -283,13 +283,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!state.selectedChatId) return;
       
       try {
-<<<<<<< HEAD
         // Optimistic UI removed to prevent double messages; rely on websocket push from backend
         await api.sendMessage(state.selectedChatId, content, 'answer');
-=======
-        const message = await api.sendMessage(state.selectedChatId, content, 'answer');
-        dispatch({ type: 'ADD_MESSAGE', payload: message });
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to send message' });
       }

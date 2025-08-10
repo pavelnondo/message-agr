@@ -84,29 +84,17 @@ export const ChatList: React.FC = () => {
             className={`chat-item ${chat.id === state.selectedChatId ? 'selected' : ''}`}
             onClick={() => handleChatSelect(chat.id)}
           >
-<<<<<<< HEAD
-              <div className="chat-header">
-                <div className="chat-name">{(chat.user_id || '').split(' [')[0] || 'Unknown user'}</div>
-                <div className="chat-time">{formatTime(chat.last_message?.created_at || chat.updated_at || chat.created_at)}</div>
-              </div>
-            <div className="chat-preview">{chat.last_message?.message || ''}</div>
-              <div className="chat-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: '0.75rem', color: '#374151' }}>
-                  {typeof (chat as any).message_count === 'number' ? (chat as any).message_count : ''}
-                </div>
-                <div className="ai-indicator" style={{ fontSize: '0.75rem', color: '#10b981' }}>AI: ON</div>
-              </div>
-=======
             <div className="chat-header">
-              <div className="chat-name">{chat.user_id || 'Unknown user'}</div>
+              <div className="chat-name">{(chat.user_id || '').split(' [')[0] || 'Unknown user'}</div>
               <div className="chat-time">{formatTime(chat.last_message?.created_at || chat.updated_at || chat.created_at)}</div>
             </div>
             <div className="chat-preview">{chat.last_message?.message || ''}</div>
             <div className="chat-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span />
+              <div style={{ fontSize: '0.75rem', color: '#374151' }}>
+                {typeof (chat as any).message_count === 'number' ? (chat as any).message_count : ''}
+              </div>
               <div className="ai-indicator" style={{ fontSize: '0.75rem', color: '#10b981' }}>AI: ON</div>
             </div>
->>>>>>> 8228d43febea50de8fcd7a5522ebf1a2919278d9
           </div>
         ))
       )}
