@@ -415,13 +415,47 @@ async def telegram_polling_task():
         return
     
     logger.info("Starting Telegram polling...")
+    offset = 0  # Track the last update_id we've processed
     
     while True:
         try:
-            # TODO: Implement Telegram polling logic
-            # For now, just log that we're alive
-            logger.debug("Telegram polling heartbeat")
-            await asyncio.sleep(30)  # Poll every 30 seconds
+            # Fetch updates from Telegram
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+            params = {"offset": offset, "timeout": 30}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        if data.get("ok") and data.get("result"):
+                            for update in data["result"]:
+                                update_id = update.get("update_id")
+                                message = update.get("message")
+                                
+                                if message and update_id > offset:
+                                    offset = update_id + 1  # Mark as processed
+                                    
+                                    # Extract message data
+                                    message_data = {
+                                        "message_id": message.get("message_id"),
+                                        "user_id": f"{message['from'].get('first_name', '')} {message['from'].get('username', '')} [{message['from'].get('id', '')}]",
+                                        "text": message.get("text", ""),
+                                        "date": message.get("date")
+                                    }
+                                    
+                                    logger.info(f"Received Telegram message: {message_data}")
+                                    
+                                    # Process the message
+                                    await process_telegram_message(message_data)
+                                    
+                                    # Forward to n8n
+                                    await forward_to_n8n(message_data)
+                        else:
+                            logger.debug("No new updates from Telegram")
+                    else:
+                        logger.error(f"Telegram API error: {response.status}")
+                        
         except Exception as e:
             logger.error(f"Error in Telegram polling: {e}")
             await asyncio.sleep(60)  # Wait longer on error
