@@ -373,25 +373,123 @@ async def send_message_to_telegram(chat_id: int, text: str):
     return True
 
 async def forward_to_n8n(message_data) -> bool:
-    """Forward message to n8n webhook"""
+    """Forward message to n8n webhook and handle response"""
     if not N8N_WEBHOOK_URL:
-        logger.error("N8N_WEBHOOK_URL not configured")
+        logger.warning("N8N_WEBHOOK_URL not configured")
         return False
     
     try:
-        async with aiohttp.ClientSession() as session:
-            connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification for self-signed certs
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(N8N_WEBHOOK_URL, json=message_data) as response:
-                    if response.status == 200:
-                        logger.info(f"Successfully forwarded message to n8n: {response.status}")
-                        return True
-                    else:
-                        logger.error(f"Failed to forward message to n8n: {response.status} {await response.text()}")
-                        return False
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.post(
+                N8N_WEBHOOK_URL,
+                json=message_data,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+                    logger.info(f"N8n response: {response_data}")
+                    
+                    # Handle n8n response
+                    await handle_n8n_response(message_data, response_data)
+                    return True
+                else:
+                    logger.error(f"Failed to forward message to n8n: {response.status}")
+                    # Send fallback message to Telegram
+                    await send_fallback_message(message_data)
+                    return False
     except Exception as e:
         logger.error(f"Error forwarding to n8n: {e}")
+        # Send fallback message to Telegram
+        await send_fallback_message(message_data)
         return False
+
+async def handle_n8n_response(original_message: dict, n8n_response: dict):
+    """Handle response from n8n webhook"""
+    try:
+        # Extract the answer from n8n response
+        answer = n8n_response.get("answer", "")
+        manager_handover = n8n_response.get("manager", "false") == "true"
+        
+        if answer:
+            # Extract user_id from original message
+            user_id = original_message.get("user_id", "")
+            if " [" in user_id:
+                user_id = user_id.split(" [")[0]
+            
+            # Get chat
+            async with AsyncSessionLocal() as db:
+                chat = await get_chat_by_user_id(db, user_id)
+                if chat:
+                    # Save the AI response to database
+                    await create_message(
+                        db, 
+                        chat.id, 
+                        answer, 
+                        "answer"
+                    )
+                    
+                    # Send response to Telegram
+                    await send_message_to_telegram(chat.id, answer)
+                    
+                    # Notify frontend about new AI response
+                    await manager.broadcast(json.dumps({
+                        "type": "new_message",
+                        "data": {
+                            "chat_id": str(chat.id),
+                            "message": answer,
+                            "message_type": "answer",
+                            "user_id": user_id
+                        }
+                    }))
+                    
+                    # If manager handover is requested, update chat status
+                    if manager_handover:
+                        await update_chat_ai_status(db, chat.id, False)
+                        
+                        # Notify frontend about status change
+                        await manager.broadcast(json.dumps({
+                            "type": "chat_update",
+                            "data": {
+                                "id": str(chat.id),
+                                "user_id": chat.user_id,
+                                "ai_enabled": False,
+                                "is_awaiting_manager_confirmation": True,
+                                "created_at": chat.created_at.isoformat(),
+                                "updated_at": chat.updated_at.isoformat(),
+                            }
+                        }))
+                        
+    except Exception as e:
+        logger.error(f"Error handling n8n response: {e}")
+
+async def send_fallback_message(message_data: dict):
+    """Send fallback message when n8n fails"""
+    try:
+        user_id = message_data.get("user_id", "")
+        if " [" in user_id:
+            user_id = user_id.split(" [")[0]
+        
+        async with AsyncSessionLocal() as db:
+            chat = await get_chat_by_user_id(db, user_id)
+            if chat:
+                fallback_message = "Sorry, I'm having trouble processing your message right now. Please try again later."
+                await send_message_to_telegram(chat.id, fallback_message)
+                
+                # Save fallback message to database
+                await create_message(db, chat.id, fallback_message, "answer")
+                
+                # Notify frontend
+                await manager.broadcast(json.dumps({
+                    "type": "new_message",
+                    "data": {
+                        "chat_id": str(chat.id),
+                        "message": fallback_message,
+                        "message_type": "answer",
+                        "user_id": user_id
+                    }
+                }))
+    except Exception as e:
+        logger.error(f"Error sending fallback message: {e}")
 
 @app.middleware("http")
 async def monitor_requests(request: Request, call_next):
@@ -483,6 +581,17 @@ async def process_telegram_message(message_data: dict):
                 message_data["text"], 
                 "question"
             )
+
+            # Notify websocket listeners about new message
+            await manager.broadcast(json.dumps({
+                "type": "new_message",
+                "data": {
+                    "chat_id": str(chat.id),
+                    "message": message_data["text"],
+                    "message_type": "question",
+                    "user_id": user_id
+                }
+            }))
 
             # Notify websocket listeners about chat updates
             await manager.broadcast(json.dumps({
