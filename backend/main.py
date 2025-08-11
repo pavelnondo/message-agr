@@ -311,14 +311,18 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
             }
         }))
 
-        # Forward to n8n if configured
-        if N8N_WEBHOOK_URL:
-            await forward_to_n8n({
-                "chat_id": chat_id,
-                "message": message.message,
-                "message_type": message.message_type,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+        # Forward to n8n only if AI is enabled and not awaiting manager
+        try:
+            chat_obj = await get_chat(db, chat_id)
+            if N8N_WEBHOOK_URL and chat_obj and chat_obj.ai_enabled and not chat_obj.is_awaiting_manager_confirmation:
+                await forward_to_n8n({
+                    "chat_id": chat_id,  # internal chat id (frontend flow)
+                    "message": message.message,
+                    "message_type": message.message_type,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+        except Exception as _:
+            pass
         
         return new_message
     except Exception as e:
@@ -644,6 +648,28 @@ async def process_telegram_message(message_data: dict):
                     "updated_at": chat.updated_at.isoformat(),
                 }
             }))
+
+            # Forward to n8n only if AI is enabled and not awaiting manager
+            try:
+                if N8N_WEBHOOK_URL and chat.ai_enabled and not chat.is_awaiting_manager_confirmation:
+                    # Prefer Telegram chat id when available; else try to parse from display id
+                    telegram_chat_id = message_data.get("chat_id")
+                    if telegram_chat_id is None:
+                        disp = message_data.get("user_id", "")
+                        if " [" in disp and disp.endswith("]"):
+                            try:
+                                telegram_chat_id = int(disp.rsplit("[", 1)[1][:-1])
+                            except Exception:
+                                telegram_chat_id = None
+                    await forward_to_n8n({
+                        "chat_id": telegram_chat_id,
+                        "user_id": message_data.get("user_id"),
+                        "text": message_data.get("text", ""),
+                        "message_type": "question",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+            except Exception as _:
+                pass
         
     except Exception as e:
         logger.error(f"Error processing Telegram message: {e}")
