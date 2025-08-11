@@ -28,7 +28,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
     email: '',
     password: '',
     confirmPassword: '',
-    tenant_id: ''
+    tenant_id: 'default'
   });
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -101,114 +101,253 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Message Aggregator</CardTitle>
-          <CardDescription>Sign in to your account or create a new one</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="login" className="space-y-4">
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-username">Username</Label>
-                  <Input
-                    id="login-username"
-                    type="text"
-                    placeholder="Enter your username"
-                    value={loginData.username}
-                    onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="login-password">Password</Label>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={loginData.password}
-                    onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Signing in..." : "Sign In"}
-                </Button>
-              </form>
-            </TabsContent>
-            
-            <TabsContent value="register" className="space-y-4">
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="register-username">Username</Label>
-                  <Input
-                    id="register-username"
-                    type="text"
-                    placeholder="Choose a username"
-                    value={registerData.username}
-                    onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-email">Email</Label>
-                  <Input
-                    id="register-email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={registerData.email}
-                    onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-tenant">Business/Organization</Label>
-                  <Input
-                    id="register-tenant"
-                    type="text"
-                    placeholder="e.g., coffee_shop, law_firm"
-                    value={registerData.tenant_id}
-                    onChange={(e) => setRegisterData({ ...registerData, tenant_id: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-password">Password</Label>
-                  <Input
-                    id="register-password"
-                    type="password"
-                    placeholder="Choose a password"
-                    value={registerData.password}
-                    onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-confirm-password">Confirm Password</Label>
-                  <Input
-                    id="register-confirm-password"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={registerData.confirmPassword}
-                    onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })}
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Creating account..." : "Create Account"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+    <div style={{ 
+      minHeight: '100vh', 
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        borderRadius: '16px',
+        padding: '40px',
+        width: '100%',
+        maxWidth: '440px',
+        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+        border: '1px solid var(--border-primary)'
+      }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            background: 'linear-gradient(135deg, #00b894, #00a085)',
+            borderRadius: '20px',
+            margin: '0 auto 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '32px',
+            color: 'white'
+          }}>
+            💬
+          </div>
+          <h1 style={{
+            fontSize: '28px',
+            fontWeight: '700',
+            color: 'var(--text-primary)',
+            marginBottom: '8px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+          }}>
+            Message Aggregator
+          </h1>
+          <p style={{
+            fontSize: '16px',
+            color: 'var(--text-secondary)',
+            fontWeight: '400'
+          }}>
+            AI Chat Management Platform
+          </p>
+        </div>
+
+        {/* Tab Navigation */}
+        <div style={{
+          display: 'flex',
+          background: 'var(--bg-accent)',
+          borderRadius: '12px',
+          padding: '4px',
+          marginBottom: '24px',
+          border: '1px solid var(--border-primary)'
+        }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('login')}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              background: activeTab === 'login' ? 'var(--border-focus)' : 'transparent',
+              color: activeTab === 'login' ? 'white' : 'var(--text-secondary)',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('register')}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              background: activeTab === 'register' ? 'var(--border-focus)' : 'transparent',
+              color: activeTab === 'register' ? 'white' : 'var(--text-secondary)',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Register
+          </button>
+        </div>
+
+        {/* Login Form */}
+        {activeTab === 'login' && (
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="form-group">
+              <label className="form-label">Username</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Enter your username"
+                value={loginData.username}
+                onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="Enter your password"
+                value={loginData.password}
+                onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                width: '100%',
+                padding: '14px 20px',
+                background: isLoading ? '#94a3b8' : 'linear-gradient(135deg, #00b894, #00a085)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: isLoading ? 'none' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              {isLoading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+        )}
+
+        {/* Register Form */}
+        {activeTab === 'register' && (
+          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="form-group">
+              <label className="form-label">Username</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Choose a username"
+                value={registerData.username}
+                onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input
+                type="email"
+                className="form-input"
+                placeholder="Enter your email"
+                value={registerData.email}
+                onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Business/Organization</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g., coffee_shop, law_firm"
+                value={registerData.tenant_id}
+                onChange={(e) => setRegisterData({ ...registerData, tenant_id: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="Choose a password"
+                value={registerData.password}
+                onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Confirm Password</label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="Confirm your password"
+                value={registerData.confirmPassword}
+                onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })}
+                required
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                width: '100%',
+                padding: '14px 20px',
+                background: isLoading ? '#94a3b8' : 'linear-gradient(135deg, #00b894, #00a085)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '16px',
+                fontWeight: '600',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: isLoading ? 'none' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              {isLoading ? "Creating account..." : "Create Account"}
+            </button>
+          </form>
+        )}
+
+        {/* Footer */}
+        <div style={{
+          textAlign: 'center',
+          marginTop: '24px',
+          paddingTop: '20px',
+          borderTop: '1px solid var(--border-primary)'
+        }}>
+          <p style={{
+            fontSize: '12px',
+            color: 'var(--text-muted)'
+          }}>
+            Secure multi-tenant authentication
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

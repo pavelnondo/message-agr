@@ -40,13 +40,15 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/login" element={<Navigate to="/" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Router>
+    <div className="app">
+      <Router>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Router>
+    </div>
   );
 };
 
