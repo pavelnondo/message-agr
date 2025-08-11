@@ -253,7 +253,7 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
             "type": "chat_update",
             "data": {
                 "id": str(chat.id),
-                "user_id": chat.user_id,
+                "user_id": chat.name,  # Map DB name field to frontend user_id
                 "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
                 "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                 "created_at": chat.created_at.isoformat() if chat.created_at else None,
@@ -642,7 +642,7 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                             "type": "chat_update",
                             "data": {
                                 "id": str(chat.id),
-                                "user_id": chat.user_id,
+                                "user_id": chat.name,  # Map DB name field to frontend user_id
                                 "ai_enabled": False,
                                 "is_awaiting_manager_confirmation": True,  # Keep for frontend compatibility
                                 "created_at": chat.created_at.isoformat(),
@@ -854,7 +854,7 @@ async def process_telegram_message(message_data: dict):
                         "type": "chat_update",
                         "data": {
                             "id": str(chat.id),
-                            "user_id": chat.user_id,
+                            "user_id": chat.name,  # Map DB name field to frontend user_id
                             "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
                             "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                             "created_at": chat.created_at.isoformat(),

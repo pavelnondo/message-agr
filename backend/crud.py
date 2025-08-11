@@ -30,33 +30,29 @@ class BotSettings(Base):
 
 class Chat(Base):
     __tablename__ = "chats"
-    id = Column(BigInteger, primary_key=True, index=True)
-    uuid = Column(String(100))  # Add uuid field
-    user_id = Column(String(100))  # This is actually stored in 'name' field per schema
-    ai = Column(Boolean, default=True)  # Match DB schema: 'ai' not 'ai_enabled'
-    waiting = Column(Boolean, default=False)  # Add waiting field per schema
-    is_awaiting_manager_confirmation = Column(Boolean, default=False)
-    tags = Column(ARRAY(String), default=[])  # Add tags field per schema  
-    name = Column(String, default="Не известно")  # Add name field per schema
-    messager = Column(String, default="telegram")  # Add messager field per schema
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column(Integer, primary_key=True, index=True)  # integer not BigInteger per schema
+    uuid = Column(Text, nullable=False, unique=True)  # text not String per schema
+    waiting = Column(Boolean, nullable=False, default=False)  # boolean not nullable
+    ai = Column(Boolean, nullable=False, default=True)  # boolean not nullable  
+    tags = Column(ARRAY(String), nullable=True, default=lambda: [])  # ARRAY nullable
+    name = Column(String, nullable=True, default="Не известно")  # character varying nullable
+    messager = Column(String, nullable=False, default="telegram")  # character varying not nullable
+    is_awaiting_manager_confirmation = Column(Boolean, nullable=False, default=False)  # boolean not nullable
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
     __tablename__ = "messages"
-    id = Column(BigInteger, primary_key=True, index=True)
-    # Ensure referential integrity and cascading deletes when a chat is removed
+    id = Column(Integer, primary_key=True, index=True)  # integer not BigInteger per schema
     chat_id = Column(
-        BigInteger,
+        Integer,  # integer not BigInteger per schema
         ForeignKey("chats.id", ondelete="CASCADE"),
         nullable=False,
     )
+    created_at = Column(DateTime(timezone=True), server_default=text("(now() AT TIME ZONE 'Europe/Moscow'::text)"))  # exact default per schema
     message = Column(Text, nullable=False)
-    message_type = Column(String(10), nullable=False)  # 'question' or 'answer'
-    ai = Column(Boolean, nullable=True)  # Add ai field per schema
-    is_image = Column(Boolean, default=False)  # Add is_image field per schema
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    message_type = Column(String, nullable=False)  # character varying not nullable per schema
+    ai = Column(Boolean, nullable=True)  # boolean nullable per schema
+    is_image = Column(Boolean, nullable=False, default=False)  # boolean not nullable per schema
     chat = relationship("Chat", back_populates="messages")
 
 # CRUD operations for bot_settings
@@ -128,12 +124,16 @@ async def get_chat(db: AsyncSession, chat_id: int):
     return result.scalar_one_or_none()
 
 async def get_chat_by_user_id(db: AsyncSession, user_id: str):
-    result = await db.execute(select(Chat).filter(Chat.user_id == user_id))
+    result = await db.execute(select(Chat).filter(Chat.name == user_id))  # Use name field not user_id
     return result.scalar_one_or_none()
 
 async def create_chat(db: AsyncSession, user_id: str):
     """Create a new chat"""
-    chat = Chat(user_id=user_id)
+    import uuid
+    chat = Chat(
+        name=user_id,  # Store user_id in name field per schema
+        uuid=str(uuid.uuid4())  # Generate UUID as required by schema
+    )
     db.add(chat)
     await db.commit()
     await db.refresh(chat)
@@ -227,12 +227,10 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         """
         SELECT
           c.id,
-          c.user_id,
+          c.name,
           c.ai,
           c.waiting,
           c.is_awaiting_manager_confirmation,
-          c.created_at,
-          c.updated_at,
           lm.id AS message_id,
           lm.message,
           lm.message_type,
@@ -256,23 +254,23 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
 
     chat_list: List[Dict[str, Any]] = []
     for row in rows:
-        last_type = row[10] if row[10] == "answer" else ("question" if row[7] else None)
+        last_type = row[7] if row[7] == "answer" else ("question" if row[5] else None)
         chat_dict: Dict[str, Any] = {
             "id": str(row[0]),
-            "user_id": row[1],
+            "user_id": row[1],  # Map 'name' field to 'user_id' for frontend compatibility
             "ai_enabled": row[2],  # Map 'ai' field to 'ai_enabled' for frontend compatibility
             "is_awaiting_manager_confirmation": row[3],  # Map 'waiting' to frontend field for compatibility
-            "created_at": row[5].isoformat() if row[5] else None,
-            "updated_at": row[6].isoformat() if row[6] else None,
-            "message_count": int(row[11] or 0),
+            "created_at": None,  # created_at not in this query
+            "updated_at": None,  # updated_at not in this query
+            "message_count": int(row[9] or 0),
             "last_message": (
                 {
-                    "id": str(row[7]) if row[7] else None,
-                    "message": row[8] if row[8] else None,
+                    "id": str(row[5]) if row[5] else None,
+                    "message": row[6] if row[6] else None,
                     "message_type": last_type,
-                    "created_at": row[10].isoformat() if row[10] else None,
+                    "created_at": row[8].isoformat() if row[8] else None,
                 }
-                if row[7]
+                if row[5]
                 else None
             ),
         }
