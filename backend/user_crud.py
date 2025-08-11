@@ -1,11 +1,10 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import select, update, delete, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from auth import UserRegister, UserResponse
 from shared import get_database_url
-from sqlalchemy import create_async_engine, text
 import logging
 
 logger = logging.getLogger(__name__)
