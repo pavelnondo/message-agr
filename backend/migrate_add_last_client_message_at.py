@@ -12,7 +12,7 @@ from sqlalchemy import text
 # Add the parent directory to the path so we can import shared
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.shared import get_database_url
+from shared import get_database_url
 
 async def add_last_client_message_at_field():
     """Add last_client_message_at column to chats table"""
