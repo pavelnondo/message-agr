@@ -484,6 +484,9 @@ async def forward_to_n8n(message_data) -> bool:
         logger.warning("N8N_WEBHOOK_URL not configured")
         return False
     
+    logger.info(f"Attempting to forward message to N8N: {N8N_WEBHOOK_URL}")
+    logger.info(f"Message data: {message_data}")
+    
     try:
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             async with session.post(
@@ -491,20 +494,37 @@ async def forward_to_n8n(message_data) -> bool:
                 json=message_data,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
+                logger.info(f"N8N response status: {response.status}")
+                
                 if response.status == 200:
-                    response_data = await response.json()
-                    logger.info(f"N8n response: {response_data}")
-                    
-                    # Handle n8n response
-                    await handle_n8n_response(message_data, response_data)
-                    return True
+                    try:
+                        response_data = await response.json()
+                        logger.info(f"N8N response data: {response_data}")
+                        
+                        # Handle n8n response
+                        await handle_n8n_response(message_data, response_data)
+                        logger.info("Successfully processed N8N response")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Error parsing N8N response JSON: {e}")
+                        response_text = await response.text()
+                        logger.error(f"N8N response text: {response_text}")
+                        return False
                 else:
-                    logger.error(f"Failed to forward message to n8n: {response.status}")
+                    response_text = await response.text()
+                    logger.error(f"Failed to forward message to N8N: {response.status}")
+                    logger.error(f"N8N error response: {response_text}")
                     # Send fallback message to Telegram
                     await send_fallback_message(message_data)
                     return False
+    except asyncio.TimeoutError:
+        logger.error("Timeout while forwarding to N8N")
+        await send_fallback_message(message_data)
+        return False
     except Exception as e:
-        logger.error(f"Error forwarding to n8n: {e}")
+        logger.error(f"Error forwarding to N8N: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         # Send fallback message to Telegram
         await send_fallback_message(message_data)
         return False
@@ -620,31 +640,18 @@ async def telegram_polling_task():
     
     logger.info("Starting Telegram polling...")
     
-    # Get the latest update_id to avoid processing old messages
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params={"limit": 1, "offset": -1}) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("ok") and data.get("result"):
-                        latest_update = data["result"][-1] if data["result"] else None
-                        offset = latest_update.get("update_id", 0) + 1 if latest_update else 0
-                    else:
-                        offset = 0
-                else:
-                    offset = 0
-    except Exception as e:
-        logger.warning(f"Could not get latest update_id, starting from 0: {e}")
-        offset = 0
+    # Start from offset 0 to get all pending messages
+    offset = 0
     
     logger.info(f"Starting Telegram polling from offset: {offset}")
     
     while True:
         try:
+            logger.info("Polling Telegram for updates...")
+            
             # Fetch updates from Telegram
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-            params = {"offset": offset, "timeout": 30}
+            params = {"offset": offset, "timeout": 10, "limit": 10}
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params) as response:
@@ -652,86 +659,150 @@ async def telegram_polling_task():
                         data = await response.json()
                         
                         if data.get("ok") and data.get("result"):
-                            for update in data["result"]:
+                            updates = data["result"]
+                            logger.info(f"Received {len(updates)} updates from Telegram")
+                            
+                            for update in updates:
                                 update_id = update.get("update_id")
                                 message = update.get("message")
                                 
-                                if message and update_id > offset:
-                                    offset = update_id + 1  # Mark as processed
+                                logger.info(f"Processing update {update_id}")
+                                
+                                if message:
+                                    # Extract message data with better validation
+                                    from_user = message.get("from", {})
+                                    chat_info = message.get("chat", {})
                                     
-                                    # Extract message data
+                                    # Build user display name
+                                    first_name = from_user.get("first_name", "")
+                                    username = from_user.get("username", "")
+                                    user_id_num = from_user.get("id", "")
+                                    chat_id = chat_info.get("id")
+                                    
+                                    display_parts = []
+                                    if username:
+                                        display_parts.append(username)
+                                    elif first_name:
+                                        display_parts.append(first_name)
+                                    else:
+                                        display_parts.append(str(user_id_num))
+                                    
+                                    user_display = f"{display_parts[0]} [{chat_id}]" if display_parts else f"User [{chat_id}]"
+                                    
                                     message_data = {
                                         "message_id": message.get("message_id"),
-                                        "user_id": f"{message['from'].get('first_name', '')} {message['from'].get('username', '')} [{message['from'].get('id', '')}]",
-                                        "chat_id": message.get("chat", {}).get("id"),  # Add actual Telegram chat_id
+                                        "user_id": user_display,
+                                        "chat_id": chat_id,
                                         "text": message.get("text", ""),
                                         "date": message.get("date")
                                     }
                                     
-                                    logger.info(f"Received Telegram message: {message_data}")
+                                    logger.info(f"Processing Telegram message: {message_data}")
                                     
                                     # Process the message (includes n8n forwarding if AI enabled)
-                                    await process_telegram_message(message_data)
+                                    try:
+                                        await process_telegram_message(message_data)
+                                        logger.info(f"Successfully processed message from update {update_id}")
+                                    except Exception as e:
+                                        logger.error(f"Error processing message from update {update_id}: {e}")
+                                        import traceback
+                                        logger.error(traceback.format_exc())
+                                
+                                # Always update offset to mark this update as processed
+                                offset = update_id + 1
+                                logger.info(f"Updated offset to: {offset}")
                         else:
-                            logger.debug("No new updates from Telegram")
+                            logger.info("No new updates from Telegram")
                     else:
                         logger.error(f"Telegram API error: {response.status}")
+                        response_text = await response.text()
+                        logger.error(f"Telegram API response: {response_text}")
+                        await asyncio.sleep(30)  # Wait before retrying on error
                         
         except Exception as e:
             logger.error(f"Error in Telegram polling: {e}")
-            await asyncio.sleep(60)  # Wait longer on error
+            import traceback
+            logger.error(traceback.format_exc())
+            await asyncio.sleep(30)  # Wait before retrying on error
+        
+        # Add delay between polling attempts to avoid excessive API calls
+        await asyncio.sleep(5)
 
 async def process_telegram_message(message_data: dict):
     """Process incoming Telegram message"""
     try:
         logger.info(f"Processing Telegram message: {message_data}")
         
+        # Validate message data
+        if not message_data.get("text"):
+            logger.warning("Received message with no text, skipping")
+            return
+            
         # Use the full display id (includes Telegram chat id) for stable lookup
         user_id = message_data.get("user_id", "")
+        if not user_id:
+            logger.error("No user_id in message data, skipping")
+            return
+        
+        logger.info(f"Processing message from user: {user_id}")
         
         # Create or get chat for this user
         async with AsyncSessionLocal() as db:
-            chat = await get_chat_by_user_id(db, user_id)
-            if not chat:
-                chat = await create_chat(db, user_id)
-            
-            # Create message record
-            created = await create_message(
-                db, 
-                chat.id, 
-                message_data["text"], 
-                "question"
-            )
-
-            # Notify websocket listeners about new message
-            await manager.broadcast(json.dumps({
-                "type": "new_message",
-                "data": {
-                    "id": str(created.id),
-                    "chat_id": str(chat.id),
-                    "message": message_data["text"],
-                    "message_type": "question",
-                    "created_at": created.created_at.isoformat() if created.created_at else datetime.utcnow().isoformat(),
-                    "user_id": user_id
-                }
-            }))
-
-            # Notify websocket listeners about chat updates
-            await manager.broadcast(json.dumps({
-                "type": "chat_update",
-                "data": {
-                    "id": str(chat.id),
-                    "user_id": chat.user_id,
-                    "ai_enabled": chat.ai_enabled,
-                    "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
-                    "created_at": chat.created_at.isoformat(),
-                    "updated_at": chat.updated_at.isoformat(),
-                }
-            }))
-
-            # Forward to n8n only if AI is enabled and not awaiting manager
             try:
+                chat = await get_chat_by_user_id(db, user_id)
+                if not chat:
+                    logger.info(f"Creating new chat for user: {user_id}")
+                    chat = await create_chat(db, user_id)
+                else:
+                    logger.info(f"Found existing chat {chat.id} for user: {user_id}")
+                
+                # Create message record
+                logger.info(f"Saving message to database for chat {chat.id}")
+                created = await create_message(
+                    db, 
+                    chat.id, 
+                    message_data["text"], 
+                    "question"
+                )
+                logger.info(f"Message saved with ID: {created.id}")
+
+                # Notify websocket listeners about new message
+                try:
+                    await manager.broadcast(json.dumps({
+                        "type": "new_message",
+                        "data": {
+                            "id": str(created.id),
+                            "chat_id": str(chat.id),
+                            "message": message_data["text"],
+                            "message_type": "question",
+                            "created_at": created.created_at.isoformat() if created.created_at else datetime.utcnow().isoformat(),
+                            "user_id": user_id
+                        }
+                    }))
+                    logger.info(f"Broadcasted new message notification for chat {chat.id}")
+                except Exception as e:
+                    logger.error(f"Error broadcasting new message: {e}")
+
+                # Notify websocket listeners about chat updates
+                try:
+                    await manager.broadcast(json.dumps({
+                        "type": "chat_update",
+                        "data": {
+                            "id": str(chat.id),
+                            "user_id": chat.user_id,
+                            "ai_enabled": chat.ai_enabled,
+                            "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
+                            "created_at": chat.created_at.isoformat(),
+                            "updated_at": chat.updated_at.isoformat(),
+                        }
+                    }))
+                    logger.info(f"Broadcasted chat update notification for chat {chat.id}")
+                except Exception as e:
+                    logger.error(f"Error broadcasting chat update: {e}")
+
+                # Forward to n8n only if AI is enabled and not awaiting manager
                 if N8N_WEBHOOK_URL and chat.ai_enabled and not chat.is_awaiting_manager_confirmation:
+                    logger.info(f"Forwarding message to N8N for chat {chat.id}")
                     # Prefer Telegram chat id when available; else try to parse from display id
                     telegram_chat_id = message_data.get("chat_id")
                     if telegram_chat_id is None:
@@ -739,20 +810,41 @@ async def process_telegram_message(message_data: dict):
                         if " [" in disp and disp.endswith("]"):
                             try:
                                 telegram_chat_id = int(disp.rsplit("[", 1)[1][:-1])
-                            except Exception:
+                                logger.info(f"Extracted Telegram chat_id {telegram_chat_id} from user_id")
+                            except Exception as e:
+                                logger.warning(f"Could not extract chat_id from user_id: {e}")
                                 telegram_chat_id = None
-                    await forward_to_n8n({
-                        "chat_id": telegram_chat_id,
-                        "user_id": message_data.get("user_id"),
-                        "text": message_data.get("text", ""),
-                        "message_type": "question",
-                        "timestamp": datetime.utcnow().isoformat()
-                    })
-            except Exception as _:
-                pass
+                    
+                    try:
+                        n8n_success = await forward_to_n8n({
+                            "chat_id": telegram_chat_id,
+                            "user_id": message_data.get("user_id"),
+                            "text": message_data.get("text", ""),
+                            "message_type": "question",
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                        
+                        if n8n_success:
+                            logger.info("Message successfully forwarded to N8N")
+                        else:
+                            logger.warning("Failed to forward message to N8N")
+                    except Exception as e:
+                        logger.error(f"Error forwarding to N8N: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                else:
+                    logger.info(f"Not forwarding to N8N - AI enabled: {chat.ai_enabled}, Awaiting manager: {chat.is_awaiting_manager_confirmation}")
+                    
+            except Exception as e:
+                logger.error(f"Error in database operations: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                raise  # Re-raise to be caught by outer exception handler
         
     except Exception as e:
         logger.error(f"Error processing Telegram message: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 @app.get("/metrics")
 async def metrics():
