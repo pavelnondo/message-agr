@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import text, select
+from sqlalchemy import text, select, func
 
 from crud import (
     get_chats, get_chat, get_chat_by_user_id, create_chat, get_messages, 
@@ -186,18 +186,8 @@ async def telegram_webhook(webhook_id: str, request: Request, db: AsyncSession =
                 "date": body["message"]["date"]
             }
             
-            # Process the message
+            # Process the message (this includes forwarding to n8n with proper tenant_id)
             await process_telegram_message(message_data)
-            
-            # Forward to n8n if configured
-            if N8N_WEBHOOK_URL:
-                await forward_to_n8n({
-                    "chat_id": message_data["chat_id"],
-                    "user_id": message_data["user_id"],
-                    "text": message_data["text"],
-                    "message_type": "question",
-                    "timestamp": datetime.utcnow().isoformat()
-                })
         
         return {"status": "ok"}
     except Exception as e:
@@ -1332,7 +1322,8 @@ async def process_telegram_message(message_data: dict):
                             "user_id": message_data.get("user_id"),
                             "text": message_data.get("text", ""),
                             "message_type": "question",
-                            "timestamp": datetime.utcnow().isoformat()
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "tenant_id": chat.tenant_id or "default"  # Add tenant_id to n8n payload
                         })
                         
                         if n8n_success:
