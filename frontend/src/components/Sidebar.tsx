@@ -1,65 +1,123 @@
 
-import React, { useEffect, useMemo } from 'react';
-import { useChat } from '../context/ChatContext';
-import { useNotification } from '../context/NotificationContext';
-import { ChatList } from './ChatList';
-import { SearchAndFilters } from './SearchAndFilters';
-import { StatsModal } from './StatsModal';
+import React, { useState } from 'react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Badge } from './ui/badge';
 import { ThemeToggle } from './ThemeToggle';
+import { useAuth } from '../context/AuthContext';
+import { LogOut, User, Building2 } from 'lucide-react';
 
-export const Sidebar: React.FC = () => {
-  const { state, actions } = useChat();
-  const { showNotification } = useNotification();
-  const [showStatsModal, setShowStatsModal] = React.useState(false);
+interface SidebarProps {
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  selectedTags: string[];
+  onTagToggle: (tag: string) => void;
+  availableTags: string[];
+}
 
-  useEffect(() => {
-    // Load initial data
-    actions.loadChats().catch(() => {
-      showNotification('error', 'Failed to load chats');
-    });
-    
-    actions.loadStats().catch(() => {
-      showNotification('error', 'Failed to load stats');
-    });
-  }, []);
+export const Sidebar: React.FC<SidebarProps> = ({
+  searchQuery,
+  onSearchChange,
+  selectedTags,
+  onTagToggle,
+  availableTags,
+}) => {
+  const { user, logout } = useAuth();
+  const [showUserInfo, setShowUserInfo] = useState(false);
 
-  // Tags are not part of the current backend schema; keep empty list
-  const allTags: string[] = [];
+  const handleLogout = () => {
+    logout();
+  };
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <div className="stats-dashboard">
-          <div className="stat-card">
-            <span className="stat-number">{state.stats.total_chats || 0}</span>
-            <span className="stat-label">Total Chats</span>
+    <div className="w-64 bg-background border-r border-border h-screen flex flex-col">
+      {/* Header */}
+      <div className="p-4 border-b border-border">
+        <h1 className="text-xl font-bold text-foreground">Message Aggregator</h1>
+        <p className="text-sm text-muted-foreground">AI Chat Management</p>
+      </div>
+
+      {/* User Info Section */}
+      <div className="p-4 border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">{user?.username}</span>
           </div>
-          <div className="stat-card">
-            <span className="stat-number">{state.stats.total_messages || 0}</span>
-            <span className="stat-label">Messages</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-number">{state.stats.awaiting_manager_confirmation || 0}</span>
-            <span className="stat-label">Awaiting Manager</span>
-          </div>
-        </div>
-        <div className="sidebar-header-actions">
-          <button
-            className="settings-button"
-            onClick={() => setShowStatsModal(true)}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowUserInfo(!showUserInfo)}
           >
-            ⚙️ AI Settings
-          </button>
-          <ThemeToggle />
+            <User className="h-4 w-4" />
+          </Button>
+        </div>
+        
+        {showUserInfo && (
+          <div className="mt-3 p-3 bg-muted rounded-md space-y-2">
+            <div className="flex items-center space-x-2">
+              <Building2 className="h-3 w-3 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Organization:</span>
+              <Badge variant="secondary" className="text-xs">
+                {user?.tenant_id}
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {user?.email}
+            </div>
+            {user?.is_admin && (
+              <Badge variant="default" className="text-xs">
+                Admin
+              </Badge>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Search */}
+      <div className="p-4">
+        <Input
+          placeholder="Search chats..."
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          className="w-full"
+        />
+      </div>
+
+      {/* Tags */}
+      <div className="p-4 flex-1">
+        <h3 className="text-sm font-medium text-foreground mb-3">Filter by Tags</h3>
+        <div className="space-y-2">
+          {availableTags.map((tag) => (
+            <div key={tag} className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id={tag}
+                checked={selectedTags.includes(tag)}
+                onChange={() => onTagToggle(tag)}
+                className="rounded border-gray-300"
+              />
+              <label htmlFor={tag} className="text-sm text-foreground cursor-pointer">
+                {tag}
+              </label>
+            </div>
+          ))}
         </div>
       </div>
 
-      <SearchAndFilters availableTags={allTags} />
-      <ChatList />
-
-      {showStatsModal && (
-        <StatsModal onClose={() => setShowStatsModal(false)} />
-      )}
+      {/* Footer */}
+      <div className="p-4 border-t border-border space-y-3">
+        <ThemeToggle />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLogout}
+          className="w-full"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Logout
+        </Button>
+      </div>
     </div>
   );
 };

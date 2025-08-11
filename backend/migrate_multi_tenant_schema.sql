@@ -1,7 +1,20 @@
 -- Multi-Tenant Database Schema Migration
 -- Stage 1: Database changes for multi-business AI aggregator
 
--- 1. Create tenant_settings table for per-business AI configuration
+-- 1. Create users table for authentication
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  email TEXT UNIQUE,
+  password_hash TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  is_admin BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2. Create tenant_settings table for per-business AI configuration
 CREATE TABLE IF NOT EXISTS tenant_settings (
   id SERIAL PRIMARY KEY,
   tenant_id TEXT NOT NULL UNIQUE,
@@ -13,7 +26,7 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 2. Create faqs table for per-business FAQ storage
+-- 3. Create faqs table for per-business FAQ storage
 CREATE TABLE IF NOT EXISTS faqs (
   id SERIAL PRIMARY KEY,
   tenant_id TEXT NOT NULL,
@@ -26,19 +39,21 @@ CREATE TABLE IF NOT EXISTS faqs (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 3. Add tenant_id to existing chats table
+-- 4. Add tenant_id to existing chats table
 ALTER TABLE chats 
 ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
 
--- 4. Add tenant_id to existing messages table  
+-- 5. Add tenant_id to existing messages table  
 ALTER TABLE messages 
 ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
 
--- 5. Add tenant_id to existing bot_settings table (for backward compatibility)
+-- 6. Add tenant_id to existing bot_settings table (for backward compatibility)
 ALTER TABLE bot_settings 
 ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
 
--- 6. Create indexes for performance
+-- 7. Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_settings_tenant_id ON tenant_settings(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_faqs_tenant_id ON faqs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_faqs_tenant_active ON faqs(tenant_id, is_active);
@@ -46,55 +61,32 @@ CREATE INDEX IF NOT EXISTS idx_chats_tenant_id ON chats(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON messages(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_bot_settings_tenant_id ON bot_settings(tenant_id);
 
--- 7. Migrate existing data to new structure
+-- 8. Migrate existing data to new structure
 -- Move existing bot_settings to tenant_settings for 'default' tenant
-INSERT INTO tenant_settings (tenant_id, system_message, handover_mode, language, thresholds, created_at, updated_at)
+INSERT INTO tenant_settings (tenant_id, system_message, handover_mode, language, thresholds)
 SELECT 
   'default',
-  (SELECT value FROM bot_settings WHERE key = 'system message for ai' LIMIT 1),
+  COALESCE(value, ''),
   'ask',
   'en',
-  '{}',
-  now(),
-  now()
-WHERE NOT EXISTS (SELECT 1 FROM tenant_settings WHERE tenant_id = 'default');
-
--- Move existing FAQs to new faqs table
-INSERT INTO faqs (tenant_id, question, answer, keywords, priority, is_active, created_at, updated_at)
-SELECT 
-  'default',
-  'Legacy FAQ',
-  (SELECT value FROM bot_settings WHERE key = 'faqs' LIMIT 1),
-  '',
-  1,
-  true,
-  now(),
-  now()
-WHERE EXISTS (SELECT 1 FROM bot_settings WHERE key = 'faqs' AND value IS NOT NULL);
-
--- 11. Add sample tenant data for demonstration
-INSERT INTO tenant_settings (tenant_id, system_message, handover_mode, language, thresholds, created_at, updated_at)
-VALUES 
-  ('coffee_shop', 'You are a coffee shop customer support assistant. Answer politely and concisely.', 'ask', 'en', '{"classifier": 0.65}', now(), now()),
-  ('tech_support', 'You are a technical support AI. Be detailed and provide step-by-step instructions.', 'immediate', 'en', '{"classifier": 0.7}', now(), now())
+  '{}'::jsonb
+FROM bot_settings 
+WHERE key = 'system_message'
 ON CONFLICT (tenant_id) DO NOTHING;
 
--- 12. Add sample FAQ data for demonstration
-INSERT INTO faqs (tenant_id, question, answer, keywords, priority, is_active, created_at, updated_at)
-VALUES
-  ('coffee_shop', 'What are your opening hours?', 'We are open from 7am to 9pm daily.', 'hours,open,time', 1, true, now(), now()),
-  ('coffee_shop', 'Do you offer vegan milk?', 'Yes, we have almond, oat, and soy milk options.', 'vegan,milk,plant-based', 2, true, now(), now()),
-  ('tech_support', 'How do I reset my password?', 'Click "Forgot password" on the login page and follow the steps.', 'password,reset,login', 1, true, now(), now())
-ON CONFLICT DO NOTHING;
+-- 9. Create default admin user (password: admin123)
+INSERT INTO users (username, email, password_hash, tenant_id, is_admin)
+VALUES ('admin', 'admin@example.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3bp.gS8sK.', 'default', TRUE)
+ON CONFLICT (username) DO NOTHING;
 
--- 8. Add constraints for data integrity
+-- 10. Add constraints for data integrity
 ALTER TABLE tenant_settings 
 ADD CONSTRAINT check_handover_mode CHECK (handover_mode IN ('ask', 'immediate'));
 
 ALTER TABLE tenant_settings 
 ADD CONSTRAINT check_language CHECK (language IN ('en', 'ru', 'es', 'fr', 'de'));
 
--- 9. Create view for easy tenant data access
+-- 11. Create view for easy tenant data access
 CREATE OR REPLACE VIEW tenant_overview AS
 SELECT 
   ts.tenant_id,
@@ -102,19 +94,20 @@ SELECT
   ts.handover_mode,
   ts.language,
   ts.thresholds,
-  COUNT(DISTINCT c.id) as total_chats,
-  COUNT(DISTINCT m.id) as total_messages,
-  COUNT(DISTINCT f.id) as total_faqs,
-  ts.updated_at as last_updated
+  COUNT(DISTINCT u.id) as user_count,
+  COUNT(DISTINCT c.id) as chat_count,
+  COUNT(DISTINCT m.id) as message_count
 FROM tenant_settings ts
-LEFT JOIN chats c ON ts.tenant_id = c.tenant_id
-LEFT JOIN messages m ON ts.tenant_id = m.tenant_id  
-LEFT JOIN faqs f ON ts.tenant_id = f.tenant_id AND f.is_active = true
-GROUP BY ts.tenant_id, ts.system_message, ts.handover_mode, ts.language, ts.thresholds, ts.updated_at;
+LEFT JOIN users u ON u.tenant_id = ts.tenant_id
+LEFT JOIN chats c ON c.tenant_id = ts.tenant_id
+LEFT JOIN messages m ON m.tenant_id = ts.tenant_id
+GROUP BY ts.id, ts.tenant_id, ts.system_message, ts.handover_mode, ts.language, ts.thresholds;
 
--- 10. Add comments for documentation
-COMMENT ON TABLE tenant_settings IS 'Per-business AI configuration and settings';
+-- 12. Add comments for documentation
+COMMENT ON TABLE users IS 'User authentication and tenant association';
+COMMENT ON TABLE tenant_settings IS 'Per-business AI configuration and behavior settings';
 COMMENT ON TABLE faqs IS 'Per-business FAQ storage with keywords for matching';
+COMMENT ON COLUMN users.tenant_id IS 'Links user to specific business tenant';
 COMMENT ON COLUMN tenant_settings.handover_mode IS 'Manager handover behavior: ask=prompt user, immediate=direct handover';
 COMMENT ON COLUMN tenant_settings.thresholds IS 'JSON config for AI sensitivity, response limits, etc.';
 COMMENT ON COLUMN faqs.keywords IS 'Comma-separated keywords for FAQ matching without embeddings';

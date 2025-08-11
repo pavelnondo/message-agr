@@ -21,6 +21,11 @@ from crud import (
     Chat  # Import Chat model for auto-reactivation task
 )
 from shared import get_database_url
+from auth import auth_handler, UserLogin, UserRegister, UserResponse, TokenResponse
+from user_crud import (
+    create_user, get_user_by_username, get_user_by_id, get_users_by_tenant,
+    update_user, delete_user, get_all_tenants, create_tenant
+)
 import aiohttp
 
 # Configure logging
@@ -71,7 +76,7 @@ async def get_db():
 # WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -85,8 +90,7 @@ class ConnectionManager:
             try:
                 await connection.send_text(message)
             except:
-                # Remove dead connections
-                self.active_connections.remove(connection)
+                pass
 
 manager = ConnectionManager()
 
@@ -631,7 +635,176 @@ async def save_ai_settings(settings: dict):
         logger.error(f"Unexpected error saving AI settings: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def register_user(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
+    """Register a new user"""
+    try:
+        # Check if tenant exists, create if it doesn't
+        tenant_exists = await get_all_tenants(db)
+        tenant_ids = [t["tenant_id"] for t in tenant_exists]
+        
+        if user_data.tenant_id not in tenant_ids:
+            # Create new tenant with default settings
+            tenant_created = await create_tenant(db, user_data.tenant_id)
+            if not tenant_created:
+                raise HTTPException(status_code=400, detail="Failed to create tenant")
+        
+        # Hash password and create user
+        password_hash = auth_handler.hash_password(user_data.password)
+        user = await create_user(db, user_data, password_hash)
+        
+        if not user:
+            raise HTTPException(status_code=400, detail="Username or email already exists")
+        
+        # Create access token
+        token_data = {
+            "sub": str(user["id"]),
+            "username": user["username"],
+            "tenant_id": user["tenant_id"],
+            "is_admin": user["is_admin"]
+        }
+        access_token = auth_handler.create_access_token(token_data)
+        
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserResponse(**user)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login_user(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
+    """Login user and return JWT token"""
+    try:
+        # Get user by username
+        user = await get_user_by_username(db, user_data.username)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Verify password
+        if not auth_handler.verify_password(user_data.password, user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Create access token
+        token_data = {
+            "sub": str(user["id"]),
+            "username": user["username"],
+            "tenant_id": user["tenant_id"],
+            "is_admin": user["is_admin"]
+        }
+        access_token = auth_handler.create_access_token(token_data)
+        
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserResponse(**user)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging in user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_current_user_info(current_user: dict = Depends(auth_handler.get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get current user information"""
+    try:
+        user_id = int(current_user["sub"])
+        user = await get_user_by_id(db, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return UserResponse(**user)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/auth/tenants")
+async def get_available_tenants(db: AsyncSession = Depends(get_db)):
+    """Get all available tenants"""
+    try:
+        tenants = await get_all_tenants(db)
+        return {"tenants": tenants}
+        
+    except Exception as e:
+        logger.error(f"Error getting tenants: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/auth/users/{tenant_id}")
+async def get_tenant_users(tenant_id: str, current_user: dict = Depends(auth_handler.get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get all users for a specific tenant (admin only)"""
+    try:
+        # Check if user is admin or belongs to the tenant
+        if not current_user["is_admin"] and current_user["tenant_id"] != tenant_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        users = await get_users_by_tenant(db, tenant_id)
+        return {"users": users}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tenant users: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.put("/api/auth/users/{user_id}")
+async def update_user_info(user_id: int, update_data: dict, current_user: dict = Depends(auth_handler.get_current_user), db: AsyncSession = Depends(get_db)):
+    """Update user information (admin or self only)"""
+    try:
+        # Check if user is admin or updating their own profile
+        if not current_user["is_admin"] and int(current_user["sub"]) != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        user = await update_user(db, user_id, update_data)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return UserResponse(**user)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.delete("/api/auth/users/{user_id}")
+async def delete_user_endpoint(user_id: int, current_user: dict = Depends(auth_handler.get_current_user), db: AsyncSession = Depends(get_db)):
+    """Delete user (admin only)"""
+    try:
+        # Only admins can delete users
+        if not current_user["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        success = await delete_user(db, user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"message": "User deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ============================================================================
+# WEBSOCKET ENDPOINTS
+# ============================================================================
 
 @app.websocket("/ws/messages")
 async def messages_websocket(websocket: WebSocket):
