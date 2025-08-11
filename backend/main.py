@@ -17,7 +17,8 @@ from sqlalchemy import text, select
 from crud import (
     get_chats, get_chat, get_chat_by_user_id, create_chat, get_messages, 
     create_message, get_chats_with_last_messages, get_stats, delete_chat,
-    get_bot_settings, get_bot_setting, update_bot_setting, update_chat_ai_status
+    get_bot_settings, get_bot_setting, update_bot_setting, update_chat_ai_status,
+    Chat  # Import Chat model for auto-reactivation task
 )
 from shared import get_database_url
 import aiohttp
