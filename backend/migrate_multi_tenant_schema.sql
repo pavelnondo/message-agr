@@ -72,6 +72,21 @@ SELECT
   now()
 WHERE EXISTS (SELECT 1 FROM bot_settings WHERE key = 'faqs' AND value IS NOT NULL);
 
+-- 11. Add sample tenant data for demonstration
+INSERT INTO tenant_settings (tenant_id, system_message, handover_mode, language, thresholds, created_at, updated_at)
+VALUES 
+  ('coffee_shop', 'You are a coffee shop customer support assistant. Answer politely and concisely.', 'ask', 'en', '{"classifier": 0.65}', now(), now()),
+  ('tech_support', 'You are a technical support AI. Be detailed and provide step-by-step instructions.', 'immediate', 'en', '{"classifier": 0.7}', now(), now())
+ON CONFLICT (tenant_id) DO NOTHING;
+
+-- 12. Add sample FAQ data for demonstration
+INSERT INTO faqs (tenant_id, question, answer, keywords, priority, is_active, created_at, updated_at)
+VALUES
+  ('coffee_shop', 'What are your opening hours?', 'We are open from 7am to 9pm daily.', 'hours,open,time', 1, true, now(), now()),
+  ('coffee_shop', 'Do you offer vegan milk?', 'Yes, we have almond, oat, and soy milk options.', 'vegan,milk,plant-based', 2, true, now(), now()),
+  ('tech_support', 'How do I reset my password?', 'Click "Forgot password" on the login page and follow the steps.', 'password,reset,login', 1, true, now(), now())
+ON CONFLICT DO NOTHING;
+
 -- 8. Add constraints for data integrity
 ALTER TABLE tenant_settings 
 ADD CONSTRAINT check_handover_mode CHECK (handover_mode IN ('ask', 'immediate'));
