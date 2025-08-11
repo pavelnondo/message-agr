@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 
@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
     
     # Start background tasks
     asyncio.create_task(telegram_polling_task())
+    asyncio.create_task(auto_ai_reactivation_task())
     
     yield
     
@@ -274,6 +275,15 @@ async def delete_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db))
         success = await delete_chat(db, chat_id)
         if not success:
             raise HTTPException(status_code=404, detail="Chat not found")
+        
+        # Broadcast chat deletion to all connected WebSocket clients
+        await manager.broadcast(json.dumps({
+            "type": "chat_deleted",
+            "data": {
+                "chat_id": str(chat_id)
+            }
+        }))
+        
         return {"message": "Chat deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting chat: {e}")
@@ -928,6 +938,87 @@ async def telegram_polling_task():
         # Add delay between polling attempts to avoid excessive API calls
         await asyncio.sleep(5)
 
+async def auto_ai_reactivation_task():
+    """Background task to automatically reactivate AI after 10 minutes of client silence"""
+    logger.info("Starting auto AI reactivation task...")
+    
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                # Find chats that are waiting for manager but haven't had client messages for 10+ minutes
+                ten_minutes_ago = datetime.now() - timedelta(minutes=10)
+                
+                result = await db.execute(
+                    select(Chat).filter(
+                        Chat.waiting == True,
+                        Chat.ai == False,
+                        Chat.last_client_message_at.isnot(None),
+                        Chat.last_client_message_at < ten_minutes_ago
+                    )
+                )
+                chats_to_reactivate = result.scalars().all()
+                
+                for chat in chats_to_reactivate:
+                    logger.info(f"Auto-reactivating AI for chat {chat.id} after 10 minutes of silence")
+                    
+                    # Turn AI back on
+                    chat.ai = True
+                    chat.waiting = False
+                    await db.commit()
+                    await db.refresh(chat)
+                    
+                    # Broadcast status change to frontend
+                    await manager.broadcast(json.dumps({
+                        "type": "chat_update",
+                        "data": {
+                            "id": str(chat.id),
+                            "user_id": chat.user_id or chat.name,
+                            "ai_enabled": True,
+                            "is_awaiting_manager_confirmation": False,
+                            "created_at": chat.created_at.isoformat() if hasattr(chat, 'created_at') and chat.created_at else None,
+                            "updated_at": chat.updated_at.isoformat() if hasattr(chat, 'updated_at') and chat.updated_at else None,
+                        }
+                    }))
+                    
+                    # Send notification message to Telegram user
+                    if chat.user_id and " [" in chat.user_id and chat.user_id.endswith("]"):
+                        try:
+                            telegram_chat_id = int(chat.user_id.rsplit("[", 1)[1][:-1])
+                            auto_message = "🤖 AI support has been automatically reactivated. How can I help you?"
+                            
+                            telegram_success = await send_message_to_telegram(telegram_chat_id, auto_message)
+                            if telegram_success:
+                                logger.info(f"Sent auto-reactivation message to Telegram chat {telegram_chat_id}")
+                                
+                                # Save the auto-reactivation message
+                                await create_message(db, chat.id, auto_message, "answer")
+                                
+                                # Broadcast the message to frontend
+                                await manager.broadcast(json.dumps({
+                                    "type": "new_message",
+                                    "data": {
+                                        "chat_id": str(chat.id),
+                                        "message": auto_message,
+                                        "message_type": "answer",
+                                        "user_id": chat.user_id or chat.name,
+                                        "created_at": datetime.now().isoformat()
+                                    }
+                                }))
+                                
+                        except Exception as e:
+                            logger.warning(f"Could not send auto-reactivation message to Telegram: {e}")
+                
+                if chats_to_reactivate:
+                    logger.info(f"Auto-reactivated AI for {len(chats_to_reactivate)} chats")
+                    
+        except Exception as e:
+            logger.error(f"Error in auto AI reactivation task: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+        
+        # Check every 2 minutes for chats to reactivate
+        await asyncio.sleep(120)
+
 async def process_telegram_message(message_data: dict):
     """Process incoming Telegram message"""
     try:
@@ -993,6 +1084,12 @@ async def process_telegram_message(message_data: dict):
                     message_text, 
                     "question"
                 )
+                
+                # Update last client message timestamp for auto AI reactivation
+                chat.last_client_message_at = func.now()
+                await db.commit()
+                await db.refresh(chat)
+                
                 logger.info(f"Message saved with ID: {created.id}")
 
                 # Notify websocket listeners about new message

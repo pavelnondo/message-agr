@@ -42,6 +42,7 @@ class Chat(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # exists in actual schema
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # exists in actual schema
     ai_enabled = Column(Boolean, nullable=True, default=True)  # exists in actual schema
+    last_client_message_at = Column(DateTime(timezone=True), nullable=True)  # Track last client message for auto AI reactivation
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
@@ -309,9 +310,9 @@ async def get_stats(db: AsyncSession) -> Dict[str, int]:
     message_count_result = await db.execute(select(func.count(Message.id)))
     total_messages = message_count_result.scalar()
     
-    # Count chats awaiting manager confirmation
+    # Count chats awaiting manager confirmation (using waiting field)
     awaiting_count_result = await db.execute(
-        select(func.count(Chat.id)).filter(Chat.is_awaiting_manager_confirmation == True)
+        select(func.count(Chat.id)).filter(Chat.waiting == True)
     )
     awaiting_manager = awaiting_count_result.scalar()
     

@@ -190,6 +190,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   // ignore refresh errors
                 }
               })();
+            } else if (data.type === 'chat_deleted') {
+              // Handle chat deletion from WebSocket
+              const payload = data.data || {};
+              if (payload.chat_id) {
+                dispatch({ type: 'DELETE_CHAT', payload: payload.chat_id });
+              }
             }
           } catch {}
         };
