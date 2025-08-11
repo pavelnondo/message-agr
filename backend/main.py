@@ -376,7 +376,12 @@ async def get_ai_settings():
         logger.info(f"Attempting to fetch AI settings from N8N: {N8N_WEBHOOK_URL}")
         
         # Request current settings from n8n
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+        # Disable SSL verification for self-signed certificates
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as session:
             payload = {
                 "action": "get_settings",
                 "timestamp": datetime.utcnow().isoformat()
@@ -424,7 +429,12 @@ async def save_ai_settings(settings: dict):
         logger.info(f"Attempting to save AI settings to N8N: {N8N_WEBHOOK_URL}")
         
         # Send settings to n8n
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+        # Disable SSL verification for self-signed certificates
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as session:
             payload = {
                 "action": "save_settings",
                 "system_message": settings.get("system_message", ""),
