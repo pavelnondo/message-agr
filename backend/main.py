@@ -246,6 +246,20 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
         
         await db.commit()
         await db.refresh(chat)
+
+        # Notify websocket listeners about chat updates
+        await manager.broadcast(json.dumps({
+            "type": "chat_update",
+            "data": {
+                "id": str(chat.id),
+                "user_id": chat.user_id,
+                "ai_enabled": chat.ai_enabled,
+                "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
+                "created_at": chat.created_at.isoformat() if chat.created_at else None,
+                "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+            }
+        }))
+
         return chat
     except Exception as e:
         logger.error(f"Error updating chat: {e}")
@@ -598,7 +612,7 @@ async def process_telegram_message(message_data: dict):
                 chat = await create_chat(db, user_id)
             
             # Create message record
-            await create_message(
+            created = await create_message(
                 db, 
                 chat.id, 
                 message_data["text"], 
@@ -609,9 +623,11 @@ async def process_telegram_message(message_data: dict):
             await manager.broadcast(json.dumps({
                 "type": "new_message",
                 "data": {
+                    "id": str(created.id),
                     "chat_id": str(chat.id),
                     "message": message_data["text"],
                     "message_type": "question",
+                    "created_at": created.created_at.isoformat() if created.created_at else datetime.utcnow().isoformat(),
                     "user_id": user_id
                 }
             }))
