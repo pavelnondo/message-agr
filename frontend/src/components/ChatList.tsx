@@ -40,8 +40,9 @@ export const ChatList: React.FC = () => {
     try {
       const newAIStatus = !currentAIStatus;
       await actions.updateChat(chatId, { 
-        ai_enabled: newAIStatus,
-        is_awaiting_manager_confirmation: !newAIStatus  // When AI is enabled, not awaiting; when disabled, awaiting
+        ai_enabled: newAIStatus
+        // НЕ изменяем is_awaiting_manager_confirmation - это отдельный процесс!
+        // Этот флаг управляется только N8N workflow при handover процессе
       });
       showNotification('success', `AI ${newAIStatus ? 'enabled' : 'disabled'} for this chat`);
     } catch (error) {

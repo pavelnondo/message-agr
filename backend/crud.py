@@ -31,9 +31,14 @@ class BotSettings(Base):
 class Chat(Base):
     __tablename__ = "chats"
     id = Column(BigInteger, primary_key=True, index=True)
-    user_id = Column(String(100))
-    ai_enabled = Column(Boolean, default=True)  # AI is ON by default
+    uuid = Column(String(100))  # Add uuid field
+    user_id = Column(String(100))  # This is actually stored in 'name' field per schema
+    ai = Column(Boolean, default=True)  # Match DB schema: 'ai' not 'ai_enabled'
+    waiting = Column(Boolean, default=False)  # Add waiting field per schema
     is_awaiting_manager_confirmation = Column(Boolean, default=False)
+    tags = Column(ARRAY(String), default=[])  # Add tags field per schema  
+    name = Column(String, default="Не известно")  # Add name field per schema
+    messager = Column(String, default="telegram")  # Add messager field per schema
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     messages = relationship("Message", back_populates="chat")
@@ -49,6 +54,8 @@ class Message(Base):
     )
     message = Column(Text, nullable=False)
     message_type = Column(String(10), nullable=False)  # 'question' or 'answer'
+    ai = Column(Boolean, nullable=True)  # Add ai field per schema
+    is_image = Column(Boolean, default=False)  # Add is_image field per schema
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     chat = relationship("Chat", back_populates="messages")
 
@@ -221,7 +228,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         SELECT
           c.id,
           c.user_id,
-          c.ai_enabled,
+          c.ai,
           c.is_awaiting_manager_confirmation,
           c.created_at,
           c.updated_at,
@@ -252,7 +259,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         chat_dict: Dict[str, Any] = {
             "id": str(row[0]),
             "user_id": row[1],
-            "ai_enabled": row[2],
+            "ai_enabled": row[2],  # Map 'ai' field to 'ai_enabled' for frontend compatibility
             "is_awaiting_manager_confirmation": row[3],
             "created_at": row[4].isoformat() if row[4] else None,
             "updated_at": row[5].isoformat() if row[5] else None,
@@ -278,10 +285,8 @@ async def update_chat_ai_status(db: AsyncSession, chat_id: int, ai_enabled: bool
     chat = result.scalar_one_or_none()
     
     if chat:
-        chat.ai_enabled = ai_enabled
-        # When AI is disabled, set waiting to true
-        if not ai_enabled:
-            chat.is_awaiting_manager_confirmation = True
+        chat.ai = ai_enabled  # Use correct column name 'ai'
+        # НЕ трогаем is_awaiting_manager_confirmation - это управляется N8N workflow!
         await db.commit()
         await db.refresh(chat)
         return chat

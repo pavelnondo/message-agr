@@ -45,7 +45,7 @@ class MessageCreate(BaseModel):
 
 class ChatUpdate(BaseModel):
     is_awaiting_manager_confirmation: Optional[bool] = None
-    ai_enabled: Optional[bool] = None
+    ai_enabled: Optional[bool] = None  # Frontend still uses ai_enabled
 
 class BotSettingUpdate(BaseModel):
     value: str
@@ -242,7 +242,7 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
         if chat_update.is_awaiting_manager_confirmation is not None:
             chat.is_awaiting_manager_confirmation = chat_update.is_awaiting_manager_confirmation
         if chat_update.ai_enabled is not None:
-            chat.ai_enabled = chat_update.ai_enabled
+            chat.ai = chat_update.ai_enabled  # Map frontend ai_enabled to DB ai column
         
         await db.commit()
         await db.refresh(chat)
@@ -253,7 +253,7 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
             "data": {
                 "id": str(chat.id),
                 "user_id": chat.user_id,
-                "ai_enabled": chat.ai_enabled,
+                "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
                 "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                 "created_at": chat.created_at.isoformat() if chat.created_at else None,
                 "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
@@ -850,7 +850,7 @@ async def process_telegram_message(message_data: dict):
                         "data": {
                             "id": str(chat.id),
                             "user_id": chat.user_id,
-                            "ai_enabled": chat.ai_enabled,
+                            "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
                             "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                             "created_at": chat.created_at.isoformat(),
                             "updated_at": chat.updated_at.isoformat(),
@@ -861,7 +861,7 @@ async def process_telegram_message(message_data: dict):
                     logger.error(f"Error broadcasting chat update: {e}")
 
                 # Forward to n8n only if AI is enabled and not awaiting manager
-                if N8N_WEBHOOK_URL and chat.ai_enabled and not chat.is_awaiting_manager_confirmation:
+                if N8N_WEBHOOK_URL and chat.ai and not chat.is_awaiting_manager_confirmation:
                     logger.info(f"Forwarding message to N8N for chat {chat.id}")
                     # Prefer Telegram chat id when available; else try to parse from display id
                     telegram_chat_id = message_data.get("chat_id")
@@ -893,7 +893,7 @@ async def process_telegram_message(message_data: dict):
                         import traceback
                         logger.error(traceback.format_exc())
                 else:
-                    logger.info(f"Not forwarding to N8N - AI enabled: {chat.ai_enabled}, Awaiting manager: {chat.is_awaiting_manager_confirmation}")
+                    logger.info(f"Not forwarding to N8N - AI enabled: {chat.ai}, Awaiting manager: {chat.is_awaiting_manager_confirmation}")
                     
             except Exception as e:
                 logger.error(f"Error in database operations: {e}")
