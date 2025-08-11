@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy import text, select, func
 
 from crud import (
-    get_chats, get_chat, get_chat_by_user_id, create_chat, get_messages, 
+    get_chats, get_chat, get_chat_by_user_id, get_chat_by_user_id_and_session, create_chat, get_messages, 
     create_message, get_chats_with_last_messages, get_stats, delete_chat,
     get_bot_settings, get_bot_setting, update_bot_setting, update_chat_ai_status,
     Chat  # Import Chat model for auto-reactivation task
@@ -1382,13 +1382,25 @@ async def process_telegram_message(message_data: dict):
         
         logger.info(f"Processing message from user: {user_id}")
         
-        # Create or get chat for this user
+        # Create or get chat for this user with session-based separation
         async with AsyncSessionLocal() as db:
             try:
-                chat = await get_chat_by_user_id(db, user_id)
+                # Extract Telegram chat_id for session identification
+                telegram_chat_id = message_data.get("chat_id")
+                session_id = str(telegram_chat_id) if telegram_chat_id else None
+                
+                # Try to find existing chat for this user and session
+                chat = None
+                if session_id:
+                    chat = await get_chat_by_user_id_and_session(db, user_id, session_id)
+                
+                # If no session-specific chat found, try the old way for backward compatibility
                 if not chat:
-                    logger.info(f"Creating new chat for user: {user_id}")
-                    chat = await create_chat(db, user_id)
+                    chat = await get_chat_by_user_id(db, user_id)
+                
+                if not chat:
+                    logger.info(f"Creating new chat for user: {user_id} with session: {session_id}")
+                    chat = await create_chat(db, user_id, session_id)
                 else:
                     logger.info(f"Found existing chat {chat.id} for user: {user_id}")
                 

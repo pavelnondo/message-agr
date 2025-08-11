@@ -74,6 +74,7 @@ class Chat(Base):
     last_client_message_at = Column(DateTime(timezone=True), nullable=True)  # Track last client message for auto AI reactivation
     hidden = Column(Boolean, nullable=True, default=False)  # Track chats hidden from frontend
     tenant_id = Column(String, nullable=False, default="default")  # Multi-tenant support
+    session_id = Column(String(100), nullable=True)  # Add session_id for device separation
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
@@ -167,13 +168,33 @@ async def get_chat_by_user_id(db: AsyncSession, user_id: str):
     ))
     return result.scalar_one_or_none()
 
-async def create_chat(db: AsyncSession, user_id: str):
-    """Create a new chat"""
+async def get_chat_by_user_id_and_session(db: AsyncSession, user_id: str, session_id: str = None):
+    """
+    Get chat by user_id and optionally session_id to support multiple devices/sessions per user
+    """
+    if session_id:
+        # Look for chat with specific session_id
+        result = await db.execute(select(Chat).filter(
+            (Chat.user_id == user_id) & (Chat.session_id == session_id)
+        ))
+        return result.scalar_one_or_none()
+    else:
+        # Fallback to original behavior for backward compatibility
+        return await get_chat_by_user_id(db, user_id)
+
+async def create_chat(db: AsyncSession, user_id: str, session_id: str = None):
+    """Create a new chat with optional session_id for device separation"""
     import uuid
+    
+    # Generate a unique session_id if not provided
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    
     chat = Chat(
         user_id=user_id,  # Store in user_id field (primary field)
         name=extract_display_name(user_id) if user_id else "Unknown",  # Extract name part for display
-        uuid=str(uuid.uuid4())  # Generate UUID as required by schema
+        uuid=str(uuid.uuid4()),  # Generate UUID as required by schema
+        session_id=session_id  # Add session_id for device separation
     )
     db.add(chat)
     await db.commit()
