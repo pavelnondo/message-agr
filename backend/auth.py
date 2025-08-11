@@ -2,7 +2,7 @@ import jwt
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 
@@ -58,7 +58,7 @@ class AuthHandler:
                 headers={"WWW-Authenticate": "Bearer"},
             )
     
-    def get_current_user(self, credentials: HTTPAuthorizationCredentials = security) -> Dict[str, Any]:
+    def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
         """Get current user from JWT token"""
         token = credentials.credentials
         payload = self.decode_token(token)
