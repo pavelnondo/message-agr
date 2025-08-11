@@ -311,8 +311,26 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
             }
         }))
 
-        # Forward to n8n only if AI is enabled and not awaiting manager
-        # Messages from frontend don't need n8n forwarding - only Telegram messages do
+        # Get chat info to determine Telegram chat_id and send manual messages to Telegram
+        chat = await get_chat(db, chat_id)
+        if chat and message.message_type == "answer":
+            # This is a manual message from frontend (manager response)
+            # Extract Telegram chat_id from user_id and send to Telegram
+            telegram_chat_id = None
+            if " [" in chat.user_id and chat.user_id.endswith("]"):
+                try:
+                    telegram_chat_id = int(chat.user_id.rsplit("[", 1)[1][:-1])
+                    logger.info(f"Extracted Telegram chat_id {telegram_chat_id} from user_id {chat.user_id}")
+                except Exception as e:
+                    logger.warning(f"Could not extract chat_id from user_id: {e}")
+            
+            if telegram_chat_id:
+                # Send manual message to Telegram
+                telegram_success = await send_message_to_telegram(telegram_chat_id, message.message)
+                if telegram_success:
+                    logger.info(f"Manual message sent to Telegram chat {telegram_chat_id}")
+                else:
+                    logger.warning(f"Failed to send manual message to Telegram chat {telegram_chat_id}")
         
         return new_message
     except Exception as e:

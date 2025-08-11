@@ -38,11 +38,12 @@ export const ChatList: React.FC = () => {
 
   const handleAIToggle = async (chatId: string, currentAIStatus: boolean) => {
     try {
+      const newAIStatus = !currentAIStatus;
       await actions.updateChat(chatId, { 
-        ai_enabled: !currentAIStatus,
-        is_awaiting_manager_confirmation: !currentAIStatus 
+        ai_enabled: newAIStatus,
+        is_awaiting_manager_confirmation: !newAIStatus  // When AI is enabled, not awaiting; when disabled, awaiting
       });
-      showNotification('success', `AI ${!currentAIStatus ? 'enabled' : 'disabled'} for this chat`);
+      showNotification('success', `AI ${newAIStatus ? 'enabled' : 'disabled'} for this chat`);
     } catch (error) {
       showNotification('error', 'Failed to toggle AI status');
     }

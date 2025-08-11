@@ -212,7 +212,7 @@ body {
 
 /* Search and Filters */
 .search-section {
-  padding: 0 20px 20px 20px;
+  padding: 16px 20px 20px 20px;
   border-bottom: 1px solid var(--border-primary);
 }
 
@@ -222,10 +222,11 @@ body {
   border: 1px solid var(--border-secondary);
   border-radius: 6px;
   font-size: 14px;
-  margin-bottom: 12px;
+  margin: 0 0 12px 0;
   transition: border-color 0.2s ease;
   background-color: var(--bg-input);
   color: var(--text-primary);
+  box-sizing: border-box;
 }
 
 .search-input:focus {

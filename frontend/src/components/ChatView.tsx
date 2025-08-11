@@ -87,23 +87,24 @@ export const ChatView: React.FC = () => {
     return message.message.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  // Improved scroll behavior - DISABLED to prevent reloads
-  // useEffect(() => {
-  //   if (messagesEndRef.current) {
-  //     messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-  //   }
-  // }, [state.messages]);
+  // Auto-scroll to bottom when chat changes or new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [state.selectedChatId]); // Scroll to bottom when switching chats
 
-  // Auto-scroll to bottom when new messages arrive - DISABLED to prevent reloads
-  // useEffect(() => {
-  //   const container = messagesContainerRef.current;
-  //   if (container) {
-  //     const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
-  //     if (isAtBottom) {
-  //       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  //     }
-  //   }
-  // }, [filteredMessages]);
+  // Auto-scroll to bottom when new messages arrive (only if near bottom)
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container && messagesEndRef.current) {
+      const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
+      if (isAtBottom || state.messages.length === 1) {
+        // Scroll if user is near bottom or if it's the first message
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [state.messages.length]); // Only trigger on message count change, not content change
 
   // Handle scroll events to show/hide scroll button
   const handleScroll = () => {
