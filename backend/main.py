@@ -684,17 +684,7 @@ async def save_ai_settings(settings: dict):
 async def register_user(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     """Register a new user"""
     try:
-        # Check if tenant exists, create if it doesn't
-        tenant_exists = await get_all_tenants(db)
-        tenant_ids = [t["tenant_id"] for t in tenant_exists]
-        
-        if user_data.tenant_id not in tenant_ids:
-            # Create new tenant with default settings
-            tenant_created = await create_tenant(db, user_data.tenant_id)
-            if not tenant_created:
-                raise HTTPException(status_code=400, detail="Failed to create tenant")
-        
-        # Hash password and create user
+        # Hash password and create user (tenant creation is handled inside create_user)
         password_hash = auth_handler.hash_password(user_data.password)
         user = await create_user(db, user_data, password_hash)
         
