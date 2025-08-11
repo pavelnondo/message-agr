@@ -31,13 +31,17 @@ class BotSettings(Base):
 class Chat(Base):
     __tablename__ = "chats"
     id = Column(Integer, primary_key=True, index=True)  # integer not BigInteger per schema
-    uuid = Column(Text, nullable=False, unique=True)  # text not String per schema
-    waiting = Column(Boolean, nullable=False, default=False)  # boolean not nullable
-    ai = Column(Boolean, nullable=False, default=True)  # boolean not nullable  
+    uuid = Column(String, nullable=False, unique=True)  # existing schema uses character varying
+    user_id = Column(String(100), nullable=True)  # character varying(100) - primary identifier
+    name = Column(String(30), nullable=True, default="Не известно")  # character varying(30) - display name
+    ai = Column(Boolean, nullable=True, default=True)  # boolean nullable per actual schema
+    waiting = Column(Boolean, nullable=True, default=False)  # boolean nullable per actual schema
     tags = Column(ARRAY(String), nullable=True, default=lambda: [])  # ARRAY nullable
-    name = Column(String, nullable=True, default="Не известно")  # character varying nullable
     messager = Column(String, nullable=False, default="telegram")  # character varying not nullable
-    is_awaiting_manager_confirmation = Column(Boolean, nullable=False, default=False)  # boolean not nullable
+    is_awaiting_manager_confirmation = Column(Boolean, nullable=True, default=False)  # boolean nullable per actual schema
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # exists in actual schema
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # exists in actual schema
+    ai_enabled = Column(Boolean, nullable=True, default=True)  # exists in actual schema
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
@@ -124,14 +128,18 @@ async def get_chat(db: AsyncSession, chat_id: int):
     return result.scalar_one_or_none()
 
 async def get_chat_by_user_id(db: AsyncSession, user_id: str):
-    result = await db.execute(select(Chat).filter(Chat.name == user_id))  # Use name field not user_id
+    # Check both fields - new data uses user_id, old data might be in name
+    result = await db.execute(select(Chat).filter(
+        (Chat.user_id == user_id) | (Chat.name == user_id)
+    ))
     return result.scalar_one_or_none()
 
 async def create_chat(db: AsyncSession, user_id: str):
     """Create a new chat"""
     import uuid
     chat = Chat(
-        name=user_id,  # Store user_id in name field per schema
+        user_id=user_id,  # Store in user_id field (primary field)
+        name=user_id.split(' [')[0] if user_id else "Unknown",  # Extract name part for display
         uuid=str(uuid.uuid4())  # Generate UUID as required by schema
     )
     db.add(chat)
@@ -227,7 +235,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         """
         SELECT
           c.id,
-          c.name,
+          COALESCE(c.user_id, c.name) as user_display,
           c.ai,
           c.waiting,
           c.is_awaiting_manager_confirmation,
@@ -244,7 +252,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
           ORDER BY m.created_at DESC
           LIMIT 1
         ) lm ON true
-        ORDER BY c.updated_at DESC NULLS LAST, c.created_at DESC NULLS LAST
+        ORDER BY c.id DESC
         LIMIT :limit
         """
     )
