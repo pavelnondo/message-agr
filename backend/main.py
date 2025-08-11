@@ -1339,6 +1339,28 @@ async def auto_ai_reactivation_task():
         # Check every 2 minutes for chats to reactivate
         await asyncio.sleep(120)
 
+async def get_tenant_id_from_bot_token(bot_token: str) -> str:
+    """Determine tenant_id from bot token by checking environment variables"""
+    try:
+        # Check if this is the main bot token (associate with tenant_1 for now)
+        if bot_token == BOT_TOKEN:
+            return "tenant_1"
+        
+        # Check for tenant-specific bot tokens
+        for key, value in os.environ.items():
+            if key.startswith("BOT_TOKEN_") and value == bot_token:
+                # Extract tenant_id from key (e.g., BOT_TOKEN_TENANT_2 -> tenant_2)
+                tenant_id = key.replace("BOT_TOKEN_", "").lower()
+                return tenant_id
+        
+        # Fallback to default if no match found
+        logger.warning(f"No tenant found for bot token, using default")
+        return "default"
+        
+    except Exception as e:
+        logger.error(f"Error determining tenant_id from bot token: {e}")
+        return "default"
+
 async def process_telegram_message(message_data: dict):
     """Process incoming Telegram message"""
     try:
@@ -1473,9 +1495,16 @@ async def process_telegram_message(message_data: dict):
                                 telegram_chat_id = None
                     
                     try:
-                        # Use the chat's assigned tenant_id, or default if none assigned
-                        # The tenant_id gets assigned when an operator first views/responds to the chat
-                        current_tenant_id = chat.tenant_id or "default"
+                        # Determine tenant_id based on which bot received the message
+                        # For now, use the main bot token to determine tenant_id
+                        current_tenant_id = await get_tenant_id_from_bot_token(BOT_TOKEN)
+                        
+                        # If chat already has a tenant_id assigned (from operator interaction), use that
+                        if chat.tenant_id and chat.tenant_id != "default":
+                            current_tenant_id = chat.tenant_id
+                            logger.info(f"Using chat's assigned tenant_id: {current_tenant_id}")
+                        else:
+                            logger.info(f"Using bot's tenant_id: {current_tenant_id}")
                         
                         n8n_success = await forward_to_n8n({
                             "chat_id": telegram_chat_id,
@@ -1483,7 +1512,7 @@ async def process_telegram_message(message_data: dict):
                             "text": message_data.get("text", ""),
                             "message_type": "question",
                             "timestamp": datetime.utcnow().isoformat(),
-                            "tenant_id": current_tenant_id  # Use chat's assigned tenant_id
+                            "tenant_id": current_tenant_id  # Use determined tenant_id
                         })
                         
                         if n8n_success:
