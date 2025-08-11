@@ -366,8 +366,11 @@ async def get_ai_settings():
     """Get AI settings from n8n webhook"""
     try:
         if not N8N_WEBHOOK_URL:
+            logger.warning("N8N_WEBHOOK_URL not configured for AI settings")
             return {"system_message": "", "faqs": ""}
             
+        logger.info(f"Fetching AI settings from n8n: {N8N_WEBHOOK_URL}")
+        
         # Request current settings from n8n
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -378,14 +381,17 @@ async def get_ai_settings():
                 }
             )
             
+            logger.info(f"N8n settings fetch response: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
+                logger.info(f"N8n settings data: {data}")
                 return {
                     "system_message": data.get("system_message", ""),
                     "faqs": data.get("faqs", "")
                 }
             else:
-                logger.error(f"N8n settings fetch failed: {response.status_code}")
+                logger.error(f"N8n settings fetch failed: {response.status_code} - {response.text}")
                 return {"system_message": "", "faqs": ""}
                 
     except Exception as e:
@@ -397,24 +403,31 @@ async def save_ai_settings(settings: dict):
     """Save AI settings via n8n webhook"""
     try:
         if not N8N_WEBHOOK_URL:
+            logger.error("N8N_WEBHOOK_URL not configured for AI settings save")
             raise HTTPException(status_code=503, detail="N8n webhook not configured")
             
+        logger.info(f"Saving AI settings to n8n: {N8N_WEBHOOK_URL}")
+        logger.info(f"Settings data: {settings}")
+        
         # Send settings to n8n
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                N8N_WEBHOOK_URL,
-                json={
-                    "action": "save_settings",
-                    "system_message": settings.get("system_message", ""),
-                    "faqs": settings.get("faqs", ""),
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
+            payload = {
+                "action": "save_settings",
+                "system_message": settings.get("system_message", ""),
+                "faqs": settings.get("faqs", ""),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            logger.info(f"N8n save payload: {payload}")
+            
+            response = await client.post(N8N_WEBHOOK_URL, json=payload)
+            
+            logger.info(f"N8n settings save response: {response.status_code}")
             
             if response.status_code == 200:
+                logger.info("AI settings saved successfully to n8n")
                 return {"message": "Settings saved successfully"}
             else:
-                logger.error(f"N8n settings save failed: {response.status_code}")
+                logger.error(f"N8n settings save failed: {response.status_code} - {response.text}")
                 raise HTTPException(status_code=500, detail="Failed to save settings")
                 
     except httpx.RequestError as e:
@@ -606,7 +619,26 @@ async def telegram_polling_task():
         return
     
     logger.info("Starting Telegram polling...")
-    offset = 0  # Track the last update_id we've processed
+    
+    # Get the latest update_id to avoid processing old messages
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params={"limit": 1, "offset": -1}) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("ok") and data.get("result"):
+                        latest_update = data["result"][-1] if data["result"] else None
+                        offset = latest_update.get("update_id", 0) + 1 if latest_update else 0
+                    else:
+                        offset = 0
+                else:
+                    offset = 0
+    except Exception as e:
+        logger.warning(f"Could not get latest update_id, starting from 0: {e}")
+        offset = 0
+    
+    logger.info(f"Starting Telegram polling from offset: {offset}")
     
     while True:
         try:
@@ -631,6 +663,7 @@ async def telegram_polling_task():
                                     message_data = {
                                         "message_id": message.get("message_id"),
                                         "user_id": f"{message['from'].get('first_name', '')} {message['from'].get('username', '')} [{message['from'].get('id', '')}]",
+                                        "chat_id": message.get("chat", {}).get("id"),  # Add actual Telegram chat_id
                                         "text": message.get("text", ""),
                                         "date": message.get("date")
                                     }
