@@ -264,6 +264,9 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
             }
         }))
 
+        # Broadcast stats update when chat state changes
+        await broadcast_stats_update(db)
+
         return chat
     except Exception as e:
         logger.error(f"Error updating chat: {e}")
@@ -502,6 +505,18 @@ async def get_chat_stats(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+async def broadcast_stats_update(db: AsyncSession):
+    """Broadcast updated stats to all connected clients"""
+    try:
+        stats = await get_stats(db)
+        await manager.broadcast(json.dumps({
+            "type": "stats_update",
+            "data": stats
+        }))
+        logger.info(f"Broadcasted stats update: {stats}")
+    except Exception as e:
+        logger.error(f"Error broadcasting stats: {e}")
 
 @app.get("/api/ai-settings")
 async def get_ai_settings():
@@ -802,6 +817,9 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                             }
                         }))
                         
+                        # Broadcast stats update when manager handover occurs
+                        await broadcast_stats_update(db)
+                        
     except Exception as e:
         logger.error(f"Error handling n8n response: {e}")
 
@@ -991,6 +1009,8 @@ async def auto_ai_reactivation_task():
                 
                 if chats_to_reactivate:
                     logger.info(f"Auto-reactivated AI for {len(chats_to_reactivate)} chats")
+                    # Broadcast stats update after auto-reactivation
+                    await broadcast_stats_update(db)
                     
         except Exception as e:
             logger.error(f"Error in auto AI reactivation task: {e}")
@@ -1111,6 +1131,12 @@ async def process_telegram_message(message_data: dict):
                     logger.info(f"Broadcasted chat update notification for chat {chat.id}")
                 except Exception as e:
                     logger.error(f"Error broadcasting chat update: {e}")
+
+                # Broadcast stats update (new message increases message count, may change AI status)
+                try:
+                    await broadcast_stats_update(db)
+                except Exception as e:
+                    logger.error(f"Error broadcasting stats update: {e}")
 
                 # Forward to n8n only if AI is enabled and not waiting for manager
                 if N8N_WEBHOOK_URL and chat.ai and not chat.waiting:

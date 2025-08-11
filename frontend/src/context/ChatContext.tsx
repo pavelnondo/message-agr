@@ -196,6 +196,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               if (payload.chat_id) {
                 dispatch({ type: 'DELETE_CHAT', payload: payload.chat_id });
               }
+            } else if (data.type === 'stats_update') {
+              // Handle real-time stats updates
+              const payload = data.data || {};
+              if (payload.total_chats !== undefined) {
+                dispatch({ type: 'SET_STATS', payload: payload });
+              }
             }
           } catch {}
         };
@@ -225,6 +231,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   dispatch({ type: 'SET_CHATS', payload: chats });
                 } catch {}
               })();
+            } else if (data.type === 'stats_update') {
+              // Handle real-time stats updates from updates WebSocket
+              const payload = data.data || {};
+              if (payload.total_chats !== undefined) {
+                dispatch({ type: 'SET_STATS', payload: payload });
+              }
             }
           } catch {}
         };
