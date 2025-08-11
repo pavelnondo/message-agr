@@ -229,6 +229,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
           c.id,
           c.user_id,
           c.ai,
+          c.waiting,
           c.is_awaiting_manager_confirmation,
           c.created_at,
           c.updated_at,
@@ -255,23 +256,23 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
 
     chat_list: List[Dict[str, Any]] = []
     for row in rows:
-        last_type = row[8] if row[8] == "answer" else ("question" if row[6] else None)
+        last_type = row[10] if row[10] == "answer" else ("question" if row[7] else None)
         chat_dict: Dict[str, Any] = {
             "id": str(row[0]),
             "user_id": row[1],
             "ai_enabled": row[2],  # Map 'ai' field to 'ai_enabled' for frontend compatibility
-            "is_awaiting_manager_confirmation": row[3],
-            "created_at": row[4].isoformat() if row[4] else None,
-            "updated_at": row[5].isoformat() if row[5] else None,
-            "message_count": int(row[10] or 0),
+            "is_awaiting_manager_confirmation": row[3],  # Map 'waiting' to frontend field for compatibility
+            "created_at": row[5].isoformat() if row[5] else None,
+            "updated_at": row[6].isoformat() if row[6] else None,
+            "message_count": int(row[11] or 0),
             "last_message": (
                 {
-                    "id": str(row[6]) if row[6] else None,
-                    "message": row[7] if row[7] else None,
+                    "id": str(row[7]) if row[7] else None,
+                    "message": row[8] if row[8] else None,
                     "message_type": last_type,
-                    "created_at": row[9].isoformat() if row[9] else None,
+                    "created_at": row[10].isoformat() if row[10] else None,
                 }
-                if row[6]
+                if row[7]
                 else None
             ),
         }
@@ -285,8 +286,8 @@ async def update_chat_ai_status(db: AsyncSession, chat_id: int, ai_enabled: bool
     chat = result.scalar_one_or_none()
     
     if chat:
-        chat.ai = ai_enabled  # Use correct column name 'ai'
-        # НЕ трогаем is_awaiting_manager_confirmation - это управляется N8N workflow!
+        chat.ai = ai_enabled
+        chat.waiting = not ai_enabled  # When AI is off, waiting for manager; when AI is on, not waiting
         await db.commit()
         await db.refresh(chat)
         return chat

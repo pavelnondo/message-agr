@@ -39,14 +39,10 @@ export const ChatList: React.FC = () => {
   const handleAIToggle = async (chatId: string, currentAIStatus: boolean) => {
     try {
       const newAIStatus = !currentAIStatus;
-      const updateData: any = { ai_enabled: newAIStatus };
-      
-      // If manually enabling AI, clear the awaiting manager flag to allow N8N forwarding
-      if (newAIStatus) {
-        updateData.is_awaiting_manager_confirmation = false;
-      }
-      
-      await actions.updateChat(chatId, updateData);
+      await actions.updateChat(chatId, { 
+        ai_enabled: newAIStatus
+        // Backend will automatically set waiting = !ai_enabled
+      });
       showNotification('success', `AI ${newAIStatus ? 'enabled' : 'disabled'} for this chat`);
     } catch (error) {
       showNotification('error', 'Failed to toggle AI status');

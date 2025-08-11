@@ -243,6 +243,7 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
             chat.is_awaiting_manager_confirmation = chat_update.is_awaiting_manager_confirmation
         if chat_update.ai_enabled is not None:
             chat.ai = chat_update.ai_enabled  # Map frontend ai_enabled to DB ai column
+            chat.waiting = not chat_update.ai_enabled  # When AI is off, waiting for manager
         
         await db.commit()
         await db.refresh(chat)
@@ -630,7 +631,11 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                     
                     # If manager handover is requested, update chat status
                     if manager_handover:
-                        await update_chat_ai_status(db, chat.id, False)
+                        # Set AI off and waiting for manager
+                        chat.ai = False
+                        chat.waiting = True
+                        await db.commit()
+                        await db.refresh(chat)
                         
                         # Notify frontend about status change
                         await manager.broadcast(json.dumps({
@@ -639,7 +644,7 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                                 "id": str(chat.id),
                                 "user_id": chat.user_id,
                                 "ai_enabled": False,
-                                "is_awaiting_manager_confirmation": True,
+                                "is_awaiting_manager_confirmation": True,  # Keep for frontend compatibility
                                 "created_at": chat.created_at.isoformat(),
                                 "updated_at": chat.updated_at.isoformat(),
                             }
@@ -860,8 +865,8 @@ async def process_telegram_message(message_data: dict):
                 except Exception as e:
                     logger.error(f"Error broadcasting chat update: {e}")
 
-                # Forward to n8n only if AI is enabled and not awaiting manager
-                if N8N_WEBHOOK_URL and chat.ai and not chat.is_awaiting_manager_confirmation:
+                # Forward to n8n only if AI is enabled and not waiting for manager
+                if N8N_WEBHOOK_URL and chat.ai and not chat.waiting:
                     logger.info(f"Forwarding message to N8N for chat {chat.id}")
                     # Prefer Telegram chat id when available; else try to parse from display id
                     telegram_chat_id = message_data.get("chat_id")
@@ -893,7 +898,7 @@ async def process_telegram_message(message_data: dict):
                         import traceback
                         logger.error(traceback.format_exc())
                 else:
-                    logger.info(f"Not forwarding to N8N - AI enabled: {chat.ai}, Awaiting manager: {chat.is_awaiting_manager_confirmation}")
+                    logger.info(f"Not forwarding to N8N - AI enabled: {chat.ai}, Waiting for manager: {chat.waiting}")
                     
             except Exception as e:
                 logger.error(f"Error in database operations: {e}")
