@@ -1,123 +1,129 @@
-
-import React, { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Badge } from './ui/badge';
-import { ThemeToggle } from './ThemeToggle';
+import React, { useEffect } from 'react';
+import { useChat } from '../context/ChatContext';
+import { useNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, User, Building2 } from 'lucide-react';
+import { ChatList } from './ChatList';
+import { SearchAndFilters } from './SearchAndFilters';
+import { StatsModal } from './StatsModal';
+import { ThemeToggle } from './ThemeToggle';
 
-interface SidebarProps {
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  selectedTags: string[];
-  onTagToggle: (tag: string) => void;
-  availableTags: string[];
-}
-
-export const Sidebar: React.FC<SidebarProps> = ({
-  searchQuery,
-  onSearchChange,
-  selectedTags,
-  onTagToggle,
-  availableTags,
-}) => {
+export const Sidebar: React.FC = () => {
+  const { state, actions } = useChat();
+  const { showNotification } = useNotification();
   const { user, logout } = useAuth();
-  const [showUserInfo, setShowUserInfo] = useState(false);
+  const [showStatsModal, setShowStatsModal] = React.useState(false);
 
-  const handleLogout = () => {
-    logout();
-  };
+  useEffect(() => {
+    // Load initial data
+    actions.loadChats().catch(() => {
+      showNotification('error', 'Failed to load chats');
+    });
+    
+    actions.loadStats().catch(() => {
+      showNotification('error', 'Failed to load stats');
+    });
+  }, []);
+
+  // Tags are not part of the current backend schema; keep empty list
+  const allTags: string[] = [];
 
   return (
-    <div className="w-64 bg-background border-r border-border h-screen flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-border">
-        <h1 className="text-xl font-bold text-foreground">Message Aggregator</h1>
-        <p className="text-sm text-muted-foreground">AI Chat Management</p>
-      </div>
-
-      {/* User Info Section */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <User className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-foreground">{user?.username}</span>
+    <div className="sidebar">
+      <div className="sidebar-header">
+        {/* User Info Bar */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          background: 'var(--bg-accent)',
+          borderBottom: '1px solid var(--border-primary)',
+          marginBottom: '16px'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px',
+            color: 'var(--text-primary)',
+            fontWeight: '500'
+          }}>
+            <span style={{
+              width: '32px',
+              height: '32px',
+              background: 'linear-gradient(135deg, #00b894, #00a085)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '14px'
+            }}>
+              {user?.username?.charAt(0).toUpperCase()}
+            </span>
+            <div>
+              <div>{user?.username}</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {user?.tenant_id} {user?.is_admin && '• Admin'}
+              </div>
+            </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowUserInfo(!showUserInfo)}
+          <button
+            onClick={logout}
+            style={{
+              background: 'none',
+              border: '1px solid var(--border-primary)',
+              borderRadius: '6px',
+              padding: '6px 8px',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'none';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
           >
-            <User className="h-4 w-4" />
-          </Button>
+            🚪 Logout
+          </button>
         </div>
-        
-        {showUserInfo && (
-          <div className="mt-3 p-3 bg-muted rounded-md space-y-2">
-            <div className="flex items-center space-x-2">
-              <Building2 className="h-3 w-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Organization:</span>
-              <Badge variant="secondary" className="text-xs">
-                {user?.tenant_id}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {user?.email}
-            </div>
-            {user?.is_admin && (
-              <Badge variant="default" className="text-xs">
-                Admin
-              </Badge>
-            )}
+
+        <div className="stats-dashboard">
+          <div className="stat-card">
+            <span className="stat-number">{state.stats.total_chats || 0}</span>
+            <span className="stat-label">Total Chats</span>
           </div>
-        )}
-      </div>
-
-      {/* Search */}
-      <div className="p-4">
-        <Input
-          placeholder="Search chats..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full"
-        />
-      </div>
-
-      {/* Tags */}
-      <div className="p-4 flex-1">
-        <h3 className="text-sm font-medium text-foreground mb-3">Filter by Tags</h3>
-        <div className="space-y-2">
-          {availableTags.map((tag) => (
-            <div key={tag} className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id={tag}
-                checked={selectedTags.includes(tag)}
-                onChange={() => onTagToggle(tag)}
-                className="rounded border-gray-300"
-              />
-              <label htmlFor={tag} className="text-sm text-foreground cursor-pointer">
-                {tag}
-              </label>
-            </div>
-          ))}
+          <div className="stat-card">
+            <span className="stat-number">{state.stats.total_messages || 0}</span>
+            <span className="stat-label">Messages</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{state.stats.awaiting_manager_confirmation || 0}</span>
+            <span className="stat-label">Awaiting Manager</span>
+          </div>
+        </div>
+        <div className="sidebar-header-actions">
+          <button
+            className="settings-button"
+            onClick={() => setShowStatsModal(true)}
+          >
+            ⚙️ AI Settings
+          </button>
+          <ThemeToggle />
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-border space-y-3">
-        <ThemeToggle />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleLogout}
-          className="w-full"
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Logout
-        </Button>
-      </div>
+      <SearchAndFilters availableTags={allTags} />
+      <ChatList />
+
+      {showStatsModal && (
+        <StatsModal onClose={() => setShowStatsModal(false)} />
+      )}
     </div>
   );
 };
