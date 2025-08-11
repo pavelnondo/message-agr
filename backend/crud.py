@@ -73,6 +73,7 @@ class Chat(Base):
     ai_enabled = Column(Boolean, nullable=True, default=True)  # exists in actual schema
     last_client_message_at = Column(DateTime(timezone=True), nullable=True)  # Track last client message for auto AI reactivation
     hidden = Column(Boolean, nullable=True, default=False)  # Track chats hidden from frontend
+    tenant_id = Column(String, nullable=False, default="default")  # Multi-tenant support
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
@@ -88,6 +89,7 @@ class Message(Base):
     message_type = Column(String, nullable=False)  # character varying not nullable per schema
     ai = Column(Boolean, nullable=True)  # boolean nullable per schema
     is_image = Column(Boolean, nullable=False, default=False)  # boolean not nullable per schema
+    tenant_id = Column(String, nullable=False, default="default")  # Multi-tenant support
     chat = relationship("Chat", back_populates="messages")
 
 # CRUD operations for bot_settings
