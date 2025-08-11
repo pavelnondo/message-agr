@@ -21,8 +21,8 @@ services:
       context: ./backend
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    expose:
-      - "5678"
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     environment:
