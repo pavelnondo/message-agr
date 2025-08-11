@@ -78,7 +78,7 @@ class UserRegister(BaseModel):
     username: str
     email: EmailStr
     password: str
-    tenant_id: str
+    tenant_id: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: int

@@ -27,8 +27,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
     username: '',
     email: '',
     password: '',
-    confirmPassword: '',
-    tenant_id: 'default'
+    confirmPassword: ''
   });
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -76,8 +75,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
         const response = await api.post('/api/auth/register', {
           username: registerData.username,
           email: registerData.email,
-          password: registerData.password,
-          tenant_id: registerData.tenant_id
+          password: registerData.password
         });
         
         const { access_token, user } = response.data;

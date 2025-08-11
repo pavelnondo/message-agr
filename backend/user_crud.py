@@ -13,6 +13,36 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = get_database_url()
 engine = create_async_engine(DATABASE_URL, echo=False)
 
+async def get_next_tenant_id(db: AsyncSession) -> str:
+    """Get the next available tenant_id (tenant_1, tenant_2, etc.)"""
+    try:
+        query = text("""
+            SELECT tenant_id 
+            FROM users 
+            WHERE tenant_id ~ '^tenant_[0-9]+$'
+            ORDER BY 
+                CAST(SUBSTRING(tenant_id FROM 8) AS INTEGER) DESC
+            LIMIT 1
+        """)
+        
+        result = await db.execute(query)
+        row = result.fetchone()
+        
+        if row:
+            # Extract the number from the last tenant_id
+            last_number = int(row[0].split('_')[1])
+            next_number = last_number + 1
+        else:
+            # No existing tenant_ids, start with 1
+            next_number = 1
+        
+        return f"tenant_{next_number}"
+        
+    except Exception as e:
+        logger.error(f"Error getting next tenant_id: {e}")
+        # Fallback to timestamp-based ID
+        return f"tenant_{int(datetime.utcnow().timestamp())}"
+
 async def create_user(db: AsyncSession, user_data: UserRegister, password_hash: str) -> Optional[Dict[str, Any]]:
     """Create a new user"""
     try:
@@ -29,6 +59,12 @@ async def create_user(db: AsyncSession, user_data: UserRegister, password_hash: 
                 logger.warning(f"Email {user_data.email} already exists")
                 return None
         
+        # Auto-generate tenant_id if not provided
+        tenant_id = user_data.tenant_id
+        if not tenant_id or tenant_id == "default":
+            tenant_id = await get_next_tenant_id(db)
+            logger.info(f"Auto-generated tenant_id: {tenant_id} for user {user_data.username}")
+        
         # Insert new user
         query = text("""
             INSERT INTO users (username, email, password_hash, tenant_id, is_admin, is_active, created_at, updated_at)
@@ -40,7 +76,7 @@ async def create_user(db: AsyncSession, user_data: UserRegister, password_hash: 
             "username": user_data.username,
             "email": user_data.email,
             "password_hash": password_hash,
-            "tenant_id": user_data.tenant_id,
+            "tenant_id": tenant_id,
             "is_admin": False,
             "is_active": True,
             "created_at": datetime.utcnow(),
@@ -48,6 +84,10 @@ async def create_user(db: AsyncSession, user_data: UserRegister, password_hash: 
         })
         
         user_row = result.fetchone()
+        
+        # Create default tenant settings for the new tenant
+        await create_tenant(db, tenant_id, f"You are a helpful AI assistant for {tenant_id}.", "ask", "en")
+        
         await db.commit()
         
         if user_row:

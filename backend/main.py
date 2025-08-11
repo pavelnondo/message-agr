@@ -842,6 +842,123 @@ async def delete_user_endpoint(user_id: int, current_user: dict = Depends(auth_h
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
+# BOT TOKEN MANAGEMENT
+# ============================================================================
+
+class BotTokenRequest(BaseModel):
+    tenant_id: str
+    bot_token: str
+
+@app.post("/api/bot-tokens")
+async def add_bot_token(token_request: BotTokenRequest, current_user: dict = Depends(auth_handler.get_current_user)):
+    """Add a bot token for a specific tenant (admin only)"""
+    try:
+        # Only admins can add bot tokens
+        if not current_user["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Validate bot token format (basic check)
+        if not token_request.bot_token or len(token_request.bot_token) < 40:
+            raise HTTPException(status_code=400, detail="Invalid bot token format")
+        
+        # Add bot token to environment file
+        env_file_path = ".env"
+        bot_token_key = f"BOT_TOKEN_{token_request.tenant_id.upper()}"
+        
+        # Read current .env file
+        env_lines = []
+        token_exists = False
+        
+        try:
+            with open(env_file_path, 'r') as f:
+                env_lines = f.readlines()
+        except FileNotFoundError:
+            pass
+        
+        # Check if token already exists
+        for i, line in enumerate(env_lines):
+            if line.startswith(f"{bot_token_key}="):
+                env_lines[i] = f"{bot_token_key}={token_request.bot_token}\n"
+                token_exists = True
+                break
+        
+        # Add new token if it doesn't exist
+        if not token_exists:
+            env_lines.append(f"{bot_token_key}={token_request.bot_token}\n")
+        
+        # Write back to .env file
+        with open(env_file_path, 'w') as f:
+            f.writelines(env_lines)
+        
+        logger.info(f"Added bot token for tenant {token_request.tenant_id}")
+        return {"message": f"Bot token added successfully for tenant {token_request.tenant_id}"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding bot token: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/bot-tokens/{tenant_id}")
+async def get_bot_token(tenant_id: str, current_user: dict = Depends(auth_handler.get_current_user)):
+    """Get bot token for a specific tenant (admin only)"""
+    try:
+        # Only admins can view bot tokens
+        if not current_user["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Read from environment
+        bot_token_key = f"BOT_TOKEN_{tenant_id.upper()}"
+        bot_token = os.getenv(bot_token_key)
+        
+        if not bot_token:
+            raise HTTPException(status_code=404, detail="Bot token not found for this tenant")
+        
+        # Return masked token for security
+        masked_token = bot_token[:10] + "..." + bot_token[-10:] if len(bot_token) > 20 else "***"
+        return {"tenant_id": tenant_id, "bot_token_masked": masked_token, "has_token": True}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bot token: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.delete("/api/bot-tokens/{tenant_id}")
+async def delete_bot_token(tenant_id: str, current_user: dict = Depends(auth_handler.get_current_user)):
+    """Delete bot token for a specific tenant (admin only)"""
+    try:
+        # Only admins can delete bot tokens
+        if not current_user["is_admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Remove from environment file
+        env_file_path = ".env"
+        bot_token_key = f"BOT_TOKEN_{tenant_id.upper()}"
+        
+        try:
+            with open(env_file_path, 'r') as f:
+                env_lines = f.readlines()
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Environment file not found")
+        
+        # Remove the token line
+        new_lines = [line for line in env_lines if not line.startswith(f"{bot_token_key}=")]
+        
+        # Write back to .env file
+        with open(env_file_path, 'w') as f:
+            f.writelines(new_lines)
+        
+        logger.info(f"Deleted bot token for tenant {tenant_id}")
+        return {"message": f"Bot token deleted successfully for tenant {tenant_id}"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting bot token: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# ============================================================================
 # WEBSOCKET ENDPOINTS
 # ============================================================================
 
