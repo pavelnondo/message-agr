@@ -1,7 +1,7 @@
 import json
 import asyncio
 from typing import Optional, Any, List, Dict
-from redis.asyncio import Redis
+# from redis.asyncio import Redis  # Redis not installed, commented out
 from config import settings
 import logging
 
@@ -9,18 +9,13 @@ logger = logging.getLogger(__name__)
 
 class CacheService:
     def __init__(self):
-        self.redis: Optional[Redis] = None
+        self.redis = None  # Redis not available
         self.default_ttl = 3600  # 1 hour
     
     async def connect(self):
         """Initialize Redis connection"""
-        try:
-            self.redis = Redis.from_url(settings.redis_url, decode_responses=True)
-            await self.redis.ping()
-            logger.info("Redis connected successfully")
-        except Exception as e:
-            logger.error(f"Redis connection failed: {e}")
-            self.redis = None
+        logger.info("Redis disabled - using in-memory cache simulation")
+        self.redis = None
     
     async def disconnect(self):
         """Close Redis connection"""
