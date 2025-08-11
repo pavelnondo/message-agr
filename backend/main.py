@@ -436,10 +436,8 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
         manager_handover = n8n_response.get("manager", "false") == "true"
         
         if answer:
-            # Extract user_id from original message
+            # Use the full display id (includes Telegram chat id) for stable lookup
             user_id = original_message.get("user_id", "")
-            if " [" in user_id:
-                user_id = user_id.split(" [")[0]
             
             # Get chat
             async with AsyncSessionLocal() as db:
@@ -590,10 +588,8 @@ async def process_telegram_message(message_data: dict):
     try:
         logger.info(f"Processing Telegram message: {message_data}")
         
-        # Extract username without the [id] part
+        # Use the full display id (includes Telegram chat id) for stable lookup
         user_id = message_data.get("user_id", "")
-        if " [" in user_id:
-            user_id = user_id.split(" [")[0]
         
         # Create or get chat for this user
         async with AsyncSessionLocal() as db:
