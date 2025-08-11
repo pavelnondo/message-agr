@@ -303,9 +303,18 @@ async def hide_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/chats/{chat_id}/messages")
-async def read_messages(chat_id: int, db: AsyncSession = Depends(get_db)):
+async def read_messages(chat_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(auth_handler.get_current_user)):
     """Get all messages for a specific chat"""
     try:
+        # Get the chat to check if it needs tenant_id assignment
+        chat = await get_chat(db, chat_id)
+        if chat and not chat.tenant_id and current_user:
+            # Assign the current user's tenant_id to the chat
+            chat.tenant_id = current_user.get('tenant_id', 'default')
+            await db.commit()
+            await db.refresh(chat)
+            logger.info(f"Assigned tenant_id '{chat.tenant_id}' to chat {chat_id} when operator viewed it")
+        
         messages = await get_messages(db, chat_id)
         # Return a plain list for simplicity; frontend can accept both
         return messages
@@ -339,10 +348,18 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
         # Get chat info to determine Telegram chat_id and send manual messages to Telegram
         chat = await get_chat(db, chat_id)
         
+        # If this is an operator response and the chat doesn't have a tenant_id assigned,
+        # assign the operator's tenant_id to the chat
+        if chat and message.message_type == "answer" and message.tenant_id and not chat.tenant_id:
+            chat.tenant_id = message.tenant_id
+            await db.commit()
+            await db.refresh(chat)
+            logger.info(f"Assigned tenant_id '{message.tenant_id}' to chat {chat_id}")
+        
         # Forward to n8n if this is a question and AI is enabled
         if chat and message.message_type == "question" and chat.ai and not chat.waiting and N8N_WEBHOOK_URL:
-            # Use the tenant_id from the message or default to 'default'
-            current_tenant_id = message.tenant_id or "default"
+            # Use the chat's assigned tenant_id, or the message tenant_id, or default
+            current_tenant_id = chat.tenant_id or message.tenant_id or "default"
             
             try:
                 n8n_success = await forward_to_n8n({
@@ -1349,10 +1366,9 @@ async def process_telegram_message(message_data: dict):
                                 telegram_chat_id = None
                     
                     try:
-                        # Get the current user's tenant_id from the database
-                        # For now, we'll use a default tenant_id since this is called from Telegram webhook
-                        # In a real implementation, you'd need to map Telegram users to tenant_ids
-                        current_tenant_id = "default"  # Default tenant for Telegram messages
+                        # Use the chat's assigned tenant_id, or default if none assigned
+                        # The tenant_id gets assigned when an operator first views/responds to the chat
+                        current_tenant_id = chat.tenant_id or "default"
                         
                         n8n_success = await forward_to_n8n({
                             "chat_id": telegram_chat_id,
@@ -1360,7 +1376,7 @@ async def process_telegram_message(message_data: dict):
                             "text": message_data.get("text", ""),
                             "message_type": "question",
                             "timestamp": datetime.utcnow().isoformat(),
-                            "tenant_id": current_tenant_id  # Use current user's tenant_id
+                            "tenant_id": current_tenant_id  # Use chat's assigned tenant_id
                         })
                         
                         if n8n_success:
