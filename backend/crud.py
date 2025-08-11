@@ -43,6 +43,7 @@ class Chat(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # exists in actual schema
     ai_enabled = Column(Boolean, nullable=True, default=True)  # exists in actual schema
     last_client_message_at = Column(DateTime(timezone=True), nullable=True)  # Track last client message for auto AI reactivation
+    hidden = Column(Boolean, nullable=True, default=False)  # Track chats hidden from frontend
     messages = relationship("Message", back_populates="chat")
 
 class Message(Base):
@@ -253,6 +254,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
           ORDER BY m.created_at DESC
           LIMIT 1
         ) lm ON true
+        WHERE c.hidden = FALSE OR c.hidden IS NULL
         ORDER BY c.id DESC
         LIMIT :limit
         """
@@ -310,9 +312,12 @@ async def get_stats(db: AsyncSession) -> Dict[str, int]:
     message_count_result = await db.execute(select(func.count(Message.id)))
     total_messages = message_count_result.scalar()
     
-    # Count chats awaiting manager confirmation (using waiting field)
+    # Count chats awaiting manager confirmation (ai=false AND waiting=true)
     awaiting_count_result = await db.execute(
-        select(func.count(Chat.id)).filter(Chat.waiting == True)
+        select(func.count(Chat.id)).filter(
+            Chat.ai == False,
+            Chat.waiting == True
+        )
     )
     awaiting_manager = awaiting_count_result.scalar()
     

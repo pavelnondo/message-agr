@@ -270,12 +270,18 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete a chat and all its messages"""
+async def hide_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db)):
+    """Hide a chat from frontend (not delete from DB)"""
     try:
-        success = await delete_chat(db, chat_id)
-        if not success:
+        # Get the chat to mark as hidden
+        chat = await get_chat(db, chat_id)
+        if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
+        
+        # Mark chat as hidden instead of deleting
+        chat.hidden = True
+        await db.commit()
+        await db.refresh(chat)
         
         # Broadcast chat deletion to all connected WebSocket clients
         await manager.broadcast(json.dumps({
@@ -285,9 +291,9 @@ async def delete_chat_endpoint(chat_id: int, db: AsyncSession = Depends(get_db))
             }
         }))
         
-        return {"message": "Chat deleted successfully"}
+        return {"message": "Chat hidden successfully"}
     except Exception as e:
-        logger.error(f"Error deleting chat: {e}")
+        logger.error(f"Error hiding chat: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/chats/{chat_id}/messages")
@@ -981,33 +987,7 @@ async def auto_ai_reactivation_task():
                         }
                     }))
                     
-                    # Send notification message to Telegram user
-                    if chat.user_id and " [" in chat.user_id and chat.user_id.endswith("]"):
-                        try:
-                            telegram_chat_id = int(chat.user_id.rsplit("[", 1)[1][:-1])
-                            auto_message = "🤖 AI support has been automatically reactivated. How can I help you?"
-                            
-                            telegram_success = await send_message_to_telegram(telegram_chat_id, auto_message)
-                            if telegram_success:
-                                logger.info(f"Sent auto-reactivation message to Telegram chat {telegram_chat_id}")
-                                
-                                # Save the auto-reactivation message
-                                await create_message(db, chat.id, auto_message, "answer")
-                                
-                                # Broadcast the message to frontend
-                                await manager.broadcast(json.dumps({
-                                    "type": "new_message",
-                                    "data": {
-                                        "chat_id": str(chat.id),
-                                        "message": auto_message,
-                                        "message_type": "answer",
-                                        "user_id": chat.user_id or chat.name,
-                                        "created_at": datetime.now().isoformat()
-                                    }
-                                }))
-                                
-                        except Exception as e:
-                            logger.warning(f"Could not send auto-reactivation message to Telegram: {e}")
+                    # AI reactivated silently - no message sent to client
                 
                 if chats_to_reactivate:
                     logger.info(f"Auto-reactivated AI for {len(chats_to_reactivate)} chats")
@@ -1088,6 +1068,11 @@ async def process_telegram_message(message_data: dict):
                 
                 # Update last client message timestamp for auto AI reactivation
                 chat.last_client_message_at = func.now()
+                
+                # Unhide chat if it was hidden (restore to frontend when client messages back)
+                if chat.hidden:
+                    chat.hidden = False
+                
                 await db.commit()
                 await db.refresh(chat)
                 
