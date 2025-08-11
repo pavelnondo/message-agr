@@ -42,6 +42,112 @@ export interface BotSetting {
   value: string;
 }
 
+// Simple fetch-based API client
+export const api = {
+  defaults: {
+    headers: {
+      common: {} as Record<string, string>
+    }
+  },
+  
+  async get(url: string) {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...api.defaults.headers.common
+    };
+    
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_CONFIG.API_URL || ''}${url}`, {
+      method: 'GET',
+      headers
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return { data: await response.json() };
+  },
+  
+  async post(url: string, data?: any) {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...api.defaults.headers.common
+    };
+    
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_CONFIG.API_URL || ''}${url}`, {
+      method: 'POST',
+      headers,
+      body: data ? JSON.stringify(data) : undefined
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const error = new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      (error as any).response = { data: errorData, status: response.status };
+      throw error;
+    }
+    
+    return { data: await response.json() };
+  },
+  
+  async put(url: string, data?: any) {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...api.defaults.headers.common
+    };
+    
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_CONFIG.API_URL || ''}${url}`, {
+      method: 'PUT',
+      headers,
+      body: data ? JSON.stringify(data) : undefined
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return { data: await response.json() };
+  },
+  
+  async delete(url: string) {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...api.defaults.headers.common
+    };
+    
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_CONFIG.API_URL || ''}${url}`, {
+      method: 'DELETE',
+      headers
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return { data: await response.json() };
+  }
+};
+
 // Chat operations
 export async function getChats(): Promise<Chat[]> {
   try {

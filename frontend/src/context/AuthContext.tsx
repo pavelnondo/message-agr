@@ -46,24 +46,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
 
-      if (storedToken && storedUser) {
-        try {
-          // Set token in API headers
-          api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-          
-          // Verify token is still valid
-          const response = await api.get('/auth/me');
-          const currentUser = response.data;
-          
-          setToken(storedToken);
-          setUser(currentUser);
-        } catch (error) {
-          // Token is invalid, clear storage
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          delete api.defaults.headers.common['Authorization'];
+              if (storedToken && storedUser) {
+          try {
+            // Verify token is still valid
+            const response = await api.get('/api/auth/me');
+            const currentUser = response.data;
+            
+            setToken(storedToken);
+            setUser(currentUser);
+          } catch (error) {
+            // Token is invalid, clear storage
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
         }
-      }
       setIsLoading(false);
     };
 
@@ -74,9 +70,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setToken(newToken);
     setUser(userData);
     
-    // Set token in API headers
-    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-    
     // Store in localStorage
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -85,9 +78,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = () => {
     setToken(null);
     setUser(null);
-    
-    // Clear API headers
-    delete api.defaults.headers.common['Authorization'];
     
     // Clear localStorage
     localStorage.removeItem('token');

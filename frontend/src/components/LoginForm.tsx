@@ -35,16 +35,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
     e.preventDefault();
     setIsLoading(true);
 
-    try {
-      const response = await api.post('/auth/login', loginData);
-      const { access_token, user } = response.data;
-      
-      // Store token in localStorage
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      // Call parent callback
-      onLogin(access_token, user);
+          try {
+        const response = await api.post('/api/auth/login', loginData);
+        const { access_token, user } = response.data;
+        
+        // Call parent callback
+        onLogin(access_token, user);
       
       toast({
         title: "Login successful",
@@ -76,22 +72,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
       return;
     }
 
-    try {
-      const response = await api.post('/auth/register', {
-        username: registerData.username,
-        email: registerData.email,
-        password: registerData.password,
-        tenant_id: registerData.tenant_id
-      });
-      
-      const { access_token, user } = response.data;
-      
-      // Store token in localStorage
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      // Call parent callback
-      onLogin(access_token, user);
+          try {
+        const response = await api.post('/api/auth/register', {
+          username: registerData.username,
+          email: registerData.email,
+          password: registerData.password,
+          tenant_id: registerData.tenant_id
+        });
+        
+        const { access_token, user } = response.data;
+        
+        // Call parent callback
+        onLogin(access_token, user);
       
       toast({
         title: "Registration successful",
