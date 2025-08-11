@@ -7,7 +7,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginForm } from './components/LoginForm';
 import Index from './pages/Index';
-import { NotFound } from './pages/NotFound';
+import NotFound from './pages/NotFound';
 import { LoadingScreen } from './components/LoadingScreen';
 import { Toaster } from './components/ui/toaster';
 import './App.css';
