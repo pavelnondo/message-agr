@@ -17,6 +17,7 @@ export const ENDPOINTS = {
   CHAT_MESSAGES: '/api/chats', // Will be used as /api/chats/{id}/messages
   STATS: '/api/stats',
   BOT_SETTINGS: '/api/bot-settings',
+  AI_SETTINGS: '/api/ai-settings',
   WS_MESSAGES: '/ws/messages',
   WS_UPDATES: '/ws/updates',
   HEALTH: '/health',

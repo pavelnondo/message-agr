@@ -244,6 +244,28 @@ export async function updateBotSetting(key: string, value: string): Promise<BotS
   return await response.json();
 }
 
+// AI Settings operations (via N8N)
+export async function getAISettings(): Promise<BotSettings> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.AI_SETTINGS}`);
+  if (!response.ok) throw new Error('Failed to fetch AI settings');
+  return await response.json();
+}
+
+export async function saveAISettings(settings: BotSettings): Promise<{message: string}> {
+  const base = API_CONFIG.API_URL || '';
+  const response = await fetch(`${base}${ENDPOINTS.AI_SETTINGS}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  });
+  
+  if (!response.ok) throw new Error('Failed to save AI settings');
+  return await response.json();
+}
+
 // WebSocket connections
 export function connectMessagesWebSocket(onMessage: (message: Message) => void): WebSocket | null {
   try {

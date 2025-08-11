@@ -20,11 +20,12 @@ export const StatsModal: React.FC<StatsModalProps> = ({ onClose }) => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const settings = await api.getBotSettings();
+      const settings = await api.getAISettings();
       setSystemMessage((settings.system_message as string) || '');
       setFaqs((settings.faqs as string) || '');
     } catch (error) {
-      showNotification('error', 'Failed to load data');
+      showNotification('error', 'Failed to load AI settings');
+      console.error('Error loading AI settings:', error);
     } finally {
       setLoading(false);
     }
@@ -32,11 +33,14 @@ export const StatsModal: React.FC<StatsModalProps> = ({ onClose }) => {
 
   const handleSave = async () => {
     try {
-      await api.updateBotSetting('system_message', systemMessage);
-      await api.updateBotSetting('faqs', faqs);
-      showNotification('success', 'AI context and FAQ updated');
+      await api.saveAISettings({
+        system_message: systemMessage,
+        faqs: faqs
+      });
+      showNotification('success', 'AI settings saved successfully');
     } catch (error) {
-      showNotification('error', 'Failed to update AI context/FAQ');
+      showNotification('error', 'Failed to save AI settings');
+      console.error('Error saving AI settings:', error);
     }
   };
 

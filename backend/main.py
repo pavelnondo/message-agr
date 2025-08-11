@@ -372,27 +372,27 @@ async def get_ai_settings():
         logger.info(f"Fetching AI settings from n8n: {N8N_WEBHOOK_URL}")
         
         # Request current settings from n8n
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            async with session.post(
                 N8N_WEBHOOK_URL,
                 json={
                     "action": "get_settings",
                     "timestamp": datetime.utcnow().isoformat()
                 }
-            )
-            
-            logger.info(f"N8n settings fetch response: {response.status_code}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"N8n settings data: {data}")
-                return {
-                    "system_message": data.get("system_message", ""),
-                    "faqs": data.get("faqs", "")
-                }
-            else:
-                logger.error(f"N8n settings fetch failed: {response.status_code} - {response.text}")
-                return {"system_message": "", "faqs": ""}
+            ) as response:
+                logger.info(f"N8n settings fetch response: {response.status}")
+                
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"N8n settings data: {data}")
+                    return {
+                        "system_message": data.get("system_message", ""),
+                        "faqs": data.get("faqs", "")
+                    }
+                else:
+                    response_text = await response.text()
+                    logger.error(f"N8n settings fetch failed: {response.status} - {response_text}")
+                    return {"system_message": "", "faqs": ""}
                 
     except Exception as e:
         logger.error(f"Error getting AI settings: {e}")
@@ -410,7 +410,7 @@ async def save_ai_settings(settings: dict):
         logger.info(f"Settings data: {settings}")
         
         # Send settings to n8n
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
                 "action": "save_settings",
                 "system_message": settings.get("system_message", ""),
@@ -419,18 +419,18 @@ async def save_ai_settings(settings: dict):
             }
             logger.info(f"N8n save payload: {payload}")
             
-            response = await client.post(N8N_WEBHOOK_URL, json=payload)
-            
-            logger.info(f"N8n settings save response: {response.status_code}")
-            
-            if response.status_code == 200:
-                logger.info("AI settings saved successfully to n8n")
-                return {"message": "Settings saved successfully"}
-            else:
-                logger.error(f"N8n settings save failed: {response.status_code} - {response.text}")
-                raise HTTPException(status_code=500, detail="Failed to save settings")
+            async with session.post(N8N_WEBHOOK_URL, json=payload) as response:
+                logger.info(f"N8n settings save response: {response.status}")
                 
-    except httpx.RequestError as e:
+                if response.status == 200:
+                    logger.info("AI settings saved successfully to n8n")
+                    return {"message": "Settings saved successfully"}
+                else:
+                    response_text = await response.text()
+                    logger.error(f"N8n settings save failed: {response.status} - {response_text}")
+                    raise HTTPException(status_code=500, detail="Failed to save settings")
+                
+    except aiohttp.ClientError as e:
         logger.error(f"Error saving AI settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to save settings")
 
