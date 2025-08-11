@@ -47,11 +47,7 @@ const senderTagStyles = `
   }
 `;
 
-interface MessageReaction {
-  emoji: string;
-  count: number;
-  users: string[];
-}
+
 
 interface ReplyMessage {
   id: string;
@@ -67,10 +63,12 @@ export const ChatView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyMessage | null>(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [pinnedMessages, setPinnedMessages] = useState<string[]>([]);
   const [showPinnedMessages, setShowPinnedMessages] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -132,6 +130,53 @@ export const ChatView: React.FC = () => {
     } catch (error) {
       showNotification('error', 'Failed to send message');
     }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedChat) return;
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      showNotification('error', 'File size must be less than 10MB');
+      return;
+    }
+
+    setIsUploading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('chat_id', selectedChat.id);
+      
+      const response = await fetch(`/api/chats/${selectedChat.id}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload file');
+      }
+
+      const result = await response.json();
+      showNotification('success', `File "${file.name}" uploaded successfully`);
+      
+      // Refresh messages to show the uploaded file
+      await actions.loadMessages(selectedChat.id);
+      
+    } catch (error) {
+      showNotification('error', 'Failed to upload file');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleAttachmentClick = () => {
+    fileInputRef.current?.click();
   };
 
   // AI toggle not supported by backend currently
@@ -204,10 +249,7 @@ export const ChatView: React.FC = () => {
     showNotification('success', 'Message copied to clipboard');
   };
 
-  const handleReaction = (messageId: string, emoji: string) => {
-    // TODO: Implement reaction logic
-    showNotification('success', `Reacted with ${emoji}`);
-  };
+
 
   const handleEditMessage = (messageId: string) => {
     // TODO: Implement edit functionality
@@ -242,7 +284,7 @@ export const ChatView: React.FC = () => {
     );
   };
 
-  const emojiReactions = ['👍', '❤️', '😮', '😢', '😡', '🎉'];
+
 
   // Inject styles for sender tags
   useEffect(() => {
@@ -426,19 +468,7 @@ export const ChatView: React.FC = () => {
                 </div>
               )}
 
-              {/* Emoji reactions */}
-              <div className="message-reactions">
-                {emojiReactions.map(emoji => (
-                  <button
-                    key={emoji}
-                    className="reaction-button"
-                    onClick={() => handleReaction(message.id, emoji)}
-                    title={`React with ${emoji}`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+
             </div>
           ))
         )}
@@ -476,21 +506,23 @@ export const ChatView: React.FC = () => {
 
         <form onSubmit={handleSendMessage} className="message-input-form">
           <div className="input-actions">
-            <button
-              type="button"
-              className="emoji-button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              title="Add emoji"
-            >
-              😊
-            </button>
+
             <button
               type="button"
               className="attachment-button"
-              title="Attach file"
+              onClick={handleAttachmentClick}
+              disabled={isUploading}
+              title={isUploading ? "Uploading..." : "Attach file"}
             >
-              📎
+              {isUploading ? '⟳' : '📎'}
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+              accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"
+            />
 
           </div>
           
@@ -518,23 +550,7 @@ export const ChatView: React.FC = () => {
           </button>
         </form>
 
-        {/* Emoji picker */}
-        {showEmojiPicker && (
-          <div className="emoji-picker">
-            {emojiReactions.map(emoji => (
-              <button
-                key={emoji}
-                className="emoji-option"
-                onClick={() => {
-                  setMessageInput(prev => prev + emoji);
-                  setShowEmojiPicker(false);
-                }}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
+
       </div>
 
       {showDeleteConfirm && (

@@ -7,8 +7,9 @@ from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import text
@@ -338,6 +339,111 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
         logger.error(f"Error sending message: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.post("/api/chats/{chat_id}/upload")
+async def upload_file(
+    chat_id: int, 
+    file: UploadFile = File(...), 
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload a file to a chat (turns AI off, sends to Telegram)"""
+    try:
+        # Verify chat exists
+        chat = await get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        
+        # Check file size (10MB limit)
+        if file.size and file.size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File size too large")
+        
+        # Create uploads directory if it doesn't exist
+        upload_dir = "uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        import uuid
+        file_extension = os.path.splitext(file.filename or "")[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Turn AI off for this chat (file uploads go to manager)
+        chat.ai = False
+        chat.waiting = True
+        await db.commit()
+        await db.refresh(chat)
+        
+        # Create message record for the file
+        file_message = f"📎 File: {file.filename} ({file.size} bytes)" if file.size else f"📎 File: {file.filename}"
+        new_message = await create_message(
+            db, 
+            chat_id, 
+            file_message, 
+            "answer"  # From manager/frontend
+        )
+        
+        # Send file to Telegram if possible
+        if chat.user_id and " [" in chat.user_id and chat.user_id.endswith("]"):
+            try:
+                telegram_chat_id = int(chat.user_id.rsplit("[", 1)[1][:-1])
+                
+                # Send file to Telegram
+                telegram_success = await send_file_to_telegram(telegram_chat_id, file_path, file.filename or "file")
+                if telegram_success:
+                    logger.info(f"File sent to Telegram chat {telegram_chat_id}")
+                else:
+                    logger.warning(f"Failed to send file to Telegram chat {telegram_chat_id}")
+            except Exception as e:
+                logger.warning(f"Could not extract telegram chat_id or send file: {e}")
+        
+        # Broadcast chat update (AI turned off)
+        await manager.broadcast(json.dumps({
+            "type": "chat_update",
+            "data": {
+                "id": str(chat.id),
+                "user_id": chat.user_id or chat.name,
+                "ai_enabled": False,
+                "is_awaiting_manager_confirmation": True,
+                "created_at": chat.created_at.isoformat() if hasattr(chat, 'created_at') else None,
+                "updated_at": chat.updated_at.isoformat() if hasattr(chat, 'updated_at') else None,
+            }
+        }))
+        
+        # Broadcast new message
+        await manager.broadcast(json.dumps({
+            "type": "new_message",
+            "data": {
+                "id": str(new_message.id),
+                "chat_id": str(new_message.chat_id),
+                "message": new_message.message,
+                "message_type": new_message.message_type,
+                "created_at": new_message.created_at.isoformat(),
+            }
+        }))
+        
+        return {
+            "message": "File uploaded successfully",
+            "filename": file.filename,
+            "file_path": f"/api/files/{unique_filename}",
+            "ai_disabled": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error uploading file: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/files/{filename}")
+async def download_file(filename: str):
+    """Download uploaded file"""
+    file_path = os.path.join("uploads", filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
 @app.get("/api/bot-settings")
 async def get_bot_settings_endpoint(db: AsyncSession = Depends(get_db)):
     """Get all bot settings"""
@@ -537,6 +643,35 @@ async def send_message_to_telegram(chat_id: int, text: str):
                     return False
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
+        return False
+
+async def send_file_to_telegram(chat_id: int, file_path: str, filename: str):
+    """Send a file to Telegram"""
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN not configured, cannot send Telegram file")
+        return False
+    
+    try:
+        api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+        
+        with open(file_path, 'rb') as file:
+            file_content = file.read()
+            
+        data = aiohttp.FormData()
+        data.add_field('chat_id', str(chat_id))
+        data.add_field('document', file_content, filename=filename, content_type='application/octet-stream')
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, data=data) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Sent file {filename} to Telegram")
+                        return True
+                    else:
+                        body = await resp.text()
+                        logger.error(f"Failed to send Telegram file: {resp.status} {body}")
+                        return False
+    except Exception as e:
+        logger.error(f"Error sending Telegram file: {e}")
         return False
 
 async def forward_to_n8n(message_data) -> bool:
@@ -798,9 +933,12 @@ async def process_telegram_message(message_data: dict):
     try:
         logger.info(f"Processing Telegram message: {message_data}")
         
-        # Validate message data
-        if not message_data.get("text"):
-            logger.warning("Received message with no text, skipping")
+        # Check if this is a file/photo message
+        has_file = message_data.get("photo") or message_data.get("document") or message_data.get("video") or message_data.get("audio")
+        
+        # Validate message data - must have text OR file
+        if not message_data.get("text") and not has_file:
+            logger.warning("Received message with no text or file, skipping")
             return
             
         # Use the full display id (includes Telegram chat id) for stable lookup
@@ -823,10 +961,36 @@ async def process_telegram_message(message_data: dict):
                 
                 # Create message record
                 logger.info(f"Saving message to database for chat {chat.id}")
+                
+                # Determine message content and if AI should be disabled
+                if has_file:
+                    # For files/photos, turn off AI and set waiting for manager
+                    chat.ai = False
+                    chat.waiting = True
+                    await db.commit()
+                    await db.refresh(chat)
+                    
+                    # Create file message
+                    if message_data.get("photo"):
+                        message_text = f"📷 Photo received" + (f": {message_data['text']}" if message_data.get("text") else "")
+                    elif message_data.get("document"):
+                        doc_name = message_data["document"].get("file_name", "document")
+                        message_text = f"📎 Document received: {doc_name}" + (f"\n{message_data['text']}" if message_data.get("text") else "")
+                    elif message_data.get("video"):
+                        message_text = f"🎥 Video received" + (f": {message_data['text']}" if message_data.get("text") else "")
+                    elif message_data.get("audio"):
+                        message_text = f"🎵 Audio received" + (f": {message_data['text']}" if message_data.get("text") else "")
+                    else:
+                        message_text = f"📎 File received" + (f": {message_data['text']}" if message_data.get("text") else "")
+                    
+                    logger.info(f"File message received, AI disabled for chat {chat.id}")
+                else:
+                    message_text = message_data["text"]
+                
                 created = await create_message(
                     db, 
                     chat.id, 
-                    message_data["text"], 
+                    message_text, 
                     "question"
                 )
                 logger.info(f"Message saved with ID: {created.id}")
@@ -838,7 +1002,7 @@ async def process_telegram_message(message_data: dict):
                         "data": {
                             "id": str(created.id),
                             "chat_id": str(chat.id),
-                            "message": message_data["text"],
+                            "message": message_text,
                             "message_type": "question",
                             "created_at": created.created_at.isoformat() if created.created_at else datetime.utcnow().isoformat(),
                             "user_id": user_id
