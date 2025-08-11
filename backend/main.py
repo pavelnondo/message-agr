@@ -953,7 +953,7 @@ async def auto_ai_reactivation_task():
         try:
             async with AsyncSessionLocal() as db:
                 # Find chats that are waiting for manager but haven't had client messages for 10+ minutes
-                ten_minutes_ago = datetime.now() - timedelta(minutes=10)
+                ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
                 
                 result = await db.execute(
                     select(Chat).filter(

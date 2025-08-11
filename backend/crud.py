@@ -8,6 +8,35 @@ from uuid import UUID
 
 from shared import get_database_url
 from cache import cache_service
+
+def extract_display_name(user_id: str) -> str:
+    """Extract display name from user_id (e.g., 'Pavel 🐾' from 'Pavel 🐾 sifisonondo [5636526615]')"""
+    if not user_id:
+        return "Unknown"
+    
+    # Remove telegram ID in brackets first
+    if " [" in user_id:
+        name_part = user_id.split(" [")[0]
+    else:
+        name_part = user_id
+    
+    # Split into words
+    parts = name_part.split()
+    if not parts:
+        return "Unknown"
+    
+    # Keep first word (name) and any parts with emojis/special characters
+    display_parts = [parts[0]]  # Always include first part (the name)
+    
+    for part in parts[1:]:
+        # Check if part contains emojis or special characters
+        if any(ord(char) > 127 for char in part):  # Non-ASCII characters (emojis)
+            display_parts.append(part)
+        else:
+            # Stop at first regular ASCII word (likely username)
+            break
+    
+    return " ".join(display_parts)
 import logging
 
 # Database configuration
@@ -141,7 +170,7 @@ async def create_chat(db: AsyncSession, user_id: str):
     import uuid
     chat = Chat(
         user_id=user_id,  # Store in user_id field (primary field)
-        name=user_id.split(' [')[0] if user_id else "Unknown",  # Extract name part for display
+        name=extract_display_name(user_id) if user_id else "Unknown",  # Extract name part for display
         uuid=str(uuid.uuid4())  # Generate UUID as required by schema
     )
     db.add(chat)
@@ -268,9 +297,9 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         last_type = row[7] if row[7] == "answer" else ("question" if row[5] else None)
         chat_dict: Dict[str, Any] = {
             "id": str(row[0]),
-            "user_id": row[1],  # Map 'name' field to 'user_id' for frontend compatibility
+            "user_id": row[1],  # Map 'user_display' to 'user_id' for frontend compatibility
             "ai_enabled": row[2],  # Map 'ai' field to 'ai_enabled' for frontend compatibility
-            "is_awaiting_manager_confirmation": row[3],  # Map 'waiting' to frontend field for compatibility
+            "is_awaiting_manager_confirmation": row[3],  # Map 'waiting' field to frontend field for compatibility
             "created_at": None,  # created_at not in this query
             "updated_at": None,  # updated_at not in this query
             "message_count": int(row[9] or 0),
