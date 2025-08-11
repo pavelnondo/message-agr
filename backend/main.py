@@ -312,17 +312,7 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
         }))
 
         # Forward to n8n only if AI is enabled and not awaiting manager
-        try:
-            chat_obj = await get_chat(db, chat_id)
-            if N8N_WEBHOOK_URL and chat_obj and chat_obj.ai_enabled and not chat_obj.is_awaiting_manager_confirmation:
-                await forward_to_n8n({
-                    "chat_id": chat_id,  # internal chat id (frontend flow)
-                    "message": message.message,
-                    "message_type": message.message_type,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-        except Exception as _:
-            pass
+        # Messages from frontend don't need n8n forwarding - only Telegram messages do
         
         return new_message
     except Exception as e:
@@ -370,6 +360,66 @@ async def get_chat_stats(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/ai-settings")
+async def get_ai_settings():
+    """Get AI settings from n8n webhook"""
+    try:
+        if not N8N_WEBHOOK_URL:
+            return {"system_message": "", "faqs": ""}
+            
+        # Request current settings from n8n
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                N8N_WEBHOOK_URL,
+                json={
+                    "action": "get_settings",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "system_message": data.get("system_message", ""),
+                    "faqs": data.get("faqs", "")
+                }
+            else:
+                logger.error(f"N8n settings fetch failed: {response.status_code}")
+                return {"system_message": "", "faqs": ""}
+                
+    except Exception as e:
+        logger.error(f"Error getting AI settings: {e}")
+        return {"system_message": "", "faqs": ""}
+
+@app.post("/api/ai-settings")
+async def save_ai_settings(settings: dict):
+    """Save AI settings via n8n webhook"""
+    try:
+        if not N8N_WEBHOOK_URL:
+            raise HTTPException(status_code=503, detail="N8n webhook not configured")
+            
+        # Send settings to n8n
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                N8N_WEBHOOK_URL,
+                json={
+                    "action": "save_settings",
+                    "system_message": settings.get("system_message", ""),
+                    "faqs": settings.get("faqs", ""),
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+            
+            if response.status_code == 200:
+                return {"message": "Settings saved successfully"}
+            else:
+                logger.error(f"N8n settings save failed: {response.status_code}")
+                raise HTTPException(status_code=500, detail="Failed to save settings")
+                
+    except httpx.RequestError as e:
+        logger.error(f"Error saving AI settings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save settings")
 
 @app.websocket("/ws/messages")
 async def messages_websocket(websocket: WebSocket):
@@ -587,11 +637,8 @@ async def telegram_polling_task():
                                     
                                     logger.info(f"Received Telegram message: {message_data}")
                                     
-                                    # Process the message
+                                    # Process the message (includes n8n forwarding if AI enabled)
                                     await process_telegram_message(message_data)
-                                    
-                                    # Forward to n8n
-                                    await forward_to_n8n(message_data)
                         else:
                             logger.debug("No new updates from Telegram")
                     else:

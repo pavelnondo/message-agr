@@ -353,6 +353,34 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     handleAIMessage,
   };
 
+  // Fallback polling to guarantee freshness even if a WS message is missed
+  useEffect(() => {
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (pollTimer) return;
+      pollTimer = setInterval(async () => {
+        const chatId = selectedChatIdRef.current;
+        if (!chatId) return;
+        try {
+          const messages = await api.getMessages(chatId);
+          // Only update if we actually see a difference
+          const existing = state.messages;
+          if (messages.length !== existing.length || (messages[messages.length - 1]?.id !== existing[existing.length - 1]?.id)) {
+            dispatch({ type: 'SET_MESSAGES', payload: messages });
+          }
+        } catch {}
+      }, 5000);
+    };
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+    if (state.selectedChatId) startPolling();
+    return () => stopPolling();
+  }, [state.selectedChatId, state.messages.length]);
+
   return (
     <ChatContext.Provider value={{ state, dispatch, actions }}>
       {children}
