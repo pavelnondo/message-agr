@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { Chat, Message, ChatStats } from '../api/api';
 import { API_CONFIG } from '../api/config';
+import { useAuth } from './AuthContext';
 import * as api from '../api/api';
 
 interface ChatState {
@@ -118,6 +119,7 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const selectedChatIdRef = useRef<string | null>(null);
+  const { user } = useAuth();
 
   // AI auto-activation logic
   const startAIAutoActivationTimer = useCallback((chatId: string) => {
@@ -304,8 +306,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!state.selectedChatId) return;
       
       try {
+        // Get current user's tenant_id for n8n workflow
+        const tenant_id = user?.tenant_id || 'default';
+        
         // Optimistic UI removed to prevent double messages; rely on websocket push from backend
-        await api.sendMessage(state.selectedChatId, content, 'answer');
+        await api.sendMessage(state.selectedChatId, content, 'answer', tenant_id);
       } catch (error) {
         dispatch({ type: 'SET_ERROR', payload: 'Failed to send message' });
       }

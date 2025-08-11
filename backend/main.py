@@ -49,6 +49,7 @@ class MessageCreate(BaseModel):
     chat_id: int
     message: str
     message_type: str  # 'question' or 'answer'
+    tenant_id: Optional[str] = None  # Optional tenant_id for n8n workflow
 
 class ChatUpdate(BaseModel):
     is_awaiting_manager_confirmation: Optional[bool] = None
@@ -337,6 +338,29 @@ async def send_message(chat_id: int, message: MessageCreate, db: AsyncSession = 
 
         # Get chat info to determine Telegram chat_id and send manual messages to Telegram
         chat = await get_chat(db, chat_id)
+        
+        # Forward to n8n if this is a question and AI is enabled
+        if chat and message.message_type == "question" and chat.ai and not chat.waiting and N8N_WEBHOOK_URL:
+            # Use the tenant_id from the message or default to 'default'
+            current_tenant_id = message.tenant_id or "default"
+            
+            try:
+                n8n_success = await forward_to_n8n({
+                    "chat_id": chat_id,
+                    "user_id": chat.user_id,
+                    "text": message.message,
+                    "message_type": "question",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "tenant_id": current_tenant_id  # Use the tenant_id from the message
+                })
+                
+                if n8n_success:
+                    logger.info("Message successfully forwarded to N8N")
+                else:
+                    logger.warning("Failed to forward message to N8N")
+            except Exception as e:
+                logger.error(f"Error forwarding to N8N: {e}")
+        
         if chat and message.message_type == "answer":
             # This is a manual message from frontend (manager response)
             # Extract Telegram chat_id from user_id and send to Telegram

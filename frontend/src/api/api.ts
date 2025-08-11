@@ -217,7 +217,7 @@ export async function getMessages(chatId: string): Promise<Message[]> {
   }));
 }
 
-export async function sendMessage(chatId: string, content: string, messageType: 'question' | 'answer' = 'question'): Promise<Message> {
+export async function sendMessage(chatId: string, content: string, messageType: 'question' | 'answer' = 'question', tenant_id?: string): Promise<Message> {
   const base = API_CONFIG.API_URL || '';
   const response = await fetch(`${base}${ENDPOINTS.CHAT_MESSAGES}/${chatId}/messages`, {
     method: 'POST',
@@ -227,7 +227,8 @@ export async function sendMessage(chatId: string, content: string, messageType: 
     body: JSON.stringify({
       chat_id: parseInt(chatId),
       message: content,
-      message_type: messageType
+      message_type: messageType,
+      tenant_id: tenant_id || 'default'  // Include tenant_id for n8n workflow
     }),
   });
   
