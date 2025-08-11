@@ -261,7 +261,15 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
         # Broadcast stats update when chat state changes
         await broadcast_stats_update(db)
 
-        return chat
+        # Return the chat with proper field mapping for frontend
+        return {
+            "id": chat.id,
+            "user_id": chat.user_id,
+            "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
+            "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
+            "created_at": chat.created_at.isoformat() if chat.created_at else None,
+            "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+        }
     except Exception as e:
         logger.error(f"Error updating chat: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1317,13 +1325,18 @@ async def process_telegram_message(message_data: dict):
                                 telegram_chat_id = None
                     
                     try:
+                        # Get the current user's tenant_id from the database
+                        # For now, we'll use a default tenant_id since this is called from Telegram webhook
+                        # In a real implementation, you'd need to map Telegram users to tenant_ids
+                        current_tenant_id = "default"  # Default tenant for Telegram messages
+                        
                         n8n_success = await forward_to_n8n({
                             "chat_id": telegram_chat_id,
                             "user_id": message_data.get("user_id"),
                             "text": message_data.get("text", ""),
                             "message_type": "question",
                             "timestamp": datetime.utcnow().isoformat(),
-                            "tenant_id": chat.tenant_id or "default"  # Add tenant_id to n8n payload
+                            "tenant_id": current_tenant_id  # Use current user's tenant_id
                         })
                         
                         if n8n_success:
