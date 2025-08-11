@@ -365,49 +365,63 @@ async def get_chat_stats(db: AsyncSession = Depends(get_db)):
 async def get_ai_settings():
     """Get AI settings from n8n webhook"""
     try:
+        logger.info(f"=== AI SETTINGS GET REQUEST ===")
+        logger.info(f"N8N_WEBHOOK_URL configured: {bool(N8N_WEBHOOK_URL)}")
+        logger.info(f"N8N_WEBHOOK_URL value: {N8N_WEBHOOK_URL}")
+        
         if not N8N_WEBHOOK_URL:
             logger.warning("N8N_WEBHOOK_URL not configured for AI settings")
             return {"system_message": "", "faqs": ""}
             
-        logger.info(f"Fetching AI settings from n8n: {N8N_WEBHOOK_URL}")
+        logger.info(f"Attempting to fetch AI settings from N8N: {N8N_WEBHOOK_URL}")
         
         # Request current settings from n8n
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
-            async with session.post(
-                N8N_WEBHOOK_URL,
-                json={
-                    "action": "get_settings",
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            ) as response:
-                logger.info(f"N8n settings fetch response: {response.status}")
-                
-                if response.status == 200:
-                    data = await response.json()
-                    logger.info(f"N8n settings data: {data}")
-                    return {
-                        "system_message": data.get("system_message", ""),
-                        "faqs": data.get("faqs", "")
-                    }
-                else:
-                    response_text = await response.text()
-                    logger.error(f"N8n settings fetch failed: {response.status} - {response_text}")
-                    return {"system_message": "", "faqs": ""}
+            payload = {
+                "action": "get_settings",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            logger.info(f"N8N get payload: {payload}")
+            
+            try:
+                async with session.post(N8N_WEBHOOK_URL, json=payload) as response:
+                    logger.info(f"N8N response status: {response.status}")
+                    
+                    if response.status == 200:
+                        data = await response.json()
+                        logger.info(f"N8N settings data: {data}")
+                        return {
+                            "system_message": data.get("system_message", ""),
+                            "faqs": data.get("faqs", "")
+                        }
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"N8N settings fetch failed: {response.status} - {response_text}")
+                        return {"system_message": "", "faqs": ""}
+            except asyncio.TimeoutError:
+                logger.error("Timeout while fetching from N8N webhook")
+                return {"system_message": "", "faqs": ""}
                 
     except Exception as e:
         logger.error(f"Error getting AI settings: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {"system_message": "", "faqs": ""}
 
 @app.post("/api/ai-settings")
 async def save_ai_settings(settings: dict):
     """Save AI settings via n8n webhook"""
     try:
+        logger.info(f"=== AI SETTINGS SAVE REQUEST ===")
+        logger.info(f"Received settings: {settings}")
+        logger.info(f"N8N_WEBHOOK_URL configured: {bool(N8N_WEBHOOK_URL)}")
+        logger.info(f"N8N_WEBHOOK_URL value: {N8N_WEBHOOK_URL}")
+        
         if not N8N_WEBHOOK_URL:
             logger.error("N8N_WEBHOOK_URL not configured for AI settings save")
             raise HTTPException(status_code=503, detail="N8n webhook not configured")
             
-        logger.info(f"Saving AI settings to n8n: {N8N_WEBHOOK_URL}")
-        logger.info(f"Settings data: {settings}")
+        logger.info(f"Attempting to save AI settings to N8N: {N8N_WEBHOOK_URL}")
         
         # Send settings to n8n
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
@@ -417,22 +431,40 @@ async def save_ai_settings(settings: dict):
                 "faqs": settings.get("faqs", ""),
                 "timestamp": datetime.utcnow().isoformat()
             }
-            logger.info(f"N8n save payload: {payload}")
+            logger.info(f"N8N save payload: {payload}")
             
-            async with session.post(N8N_WEBHOOK_URL, json=payload) as response:
-                logger.info(f"N8n settings save response: {response.status}")
+            try:
+                async with session.post(N8N_WEBHOOK_URL, json=payload) as response:
+                    logger.info(f"N8N response status: {response.status}")
+                    
+                    if response.status == 200:
+                        response_data = await response.json()
+                        logger.info(f"N8N success response: {response_data}")
+                        return {"message": "Settings saved successfully"}
+                    else:
+                        response_text = await response.text()
+                        logger.error(f"N8N error response: {response.status} - {response_text}")
+                        raise HTTPException(
+                            status_code=500, 
+                            detail=f"N8N webhook failed with status {response.status}: {response_text}"
+                        )
+            except asyncio.TimeoutError:
+                logger.error("Timeout while connecting to N8N webhook")
+                raise HTTPException(status_code=500, detail="N8N webhook timeout")
                 
-                if response.status == 200:
-                    logger.info("AI settings saved successfully to n8n")
-                    return {"message": "Settings saved successfully"}
-                else:
-                    response_text = await response.text()
-                    logger.error(f"N8n settings save failed: {response.status} - {response_text}")
-                    raise HTTPException(status_code=500, detail="Failed to save settings")
-                
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is
+        raise
     except aiohttp.ClientError as e:
-        logger.error(f"Error saving AI settings: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save settings")
+        logger.error(f"aiohttp ClientError saving AI settings: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Network error connecting to N8N: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error saving AI settings: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.websocket("/ws/messages")
 async def messages_websocket(websocket: WebSocket):
