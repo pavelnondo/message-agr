@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Messenger Design System */
+    --background: 0 0% 100%;
+    --foreground: 210 11% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 11% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 11% 15%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 210 11% 15%;
+
+    --muted: 210 40% 98%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 210 11% 15%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.75rem;
+
+    /* Platform Colors */
+    --whatsapp: 142 70% 49%;
+    --telegram: 217 91% 60%;
+    --vk: 221 83% 53%;
+    --instagram: 315 100% 43%;
+
+    /* Message Bubbles */
+    --message-sent: 217 91% 60%;
+    --message-sent-foreground: 0 0% 100%;
+    --message-received: 0 0% 100%;
+    --message-received-foreground: 210 11% 15%;
+
+    /* Status Colors */
+    --online: 142 70% 49%;
+    --away: 45 93% 47%;
+    --offline: 215 16% 47%;
+
+    /* Interactive Elements */
+    --hover: 217 91% 95%;
+    --active: 217 91% 90%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(217 91% 70%));
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%), hsl(210 40% 99%));
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.1), 0 2px 4px -2px hsl(0 0% 0% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.1), 0 4px 6px -4px hsl(0 0% 0% / 0.1);
+
+    /* Animations */
+    --transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Dark Messenger Theme */
+    --background: 215 28% 17%;
+    --foreground: 210 40% 98%;
+
+    --card: 215 28% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 215 28% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217 32% 23%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 32% 23%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 32% 23%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 32% 23%;
+    --input: 217 32% 23%;
+    --ring: 217 91% 60%;
+
+    /* Dark Mode Platform Colors */
+    --whatsapp: 142 70% 49%;
+    --telegram: 217 91% 60%;
+    --vk: 221 83% 53%;
+    --instagram: 315 100% 43%;
+
+    /* Dark Mode Message Bubbles */
+    --message-sent: 217 91% 60%;
+    --message-sent-foreground: 0 0% 100%;
+    --message-received: 217 32% 23%;
+    --message-received-foreground: 210 40% 98%;
+
+    /* Dark Mode Status Colors */
+    --online: 142 70% 49%;
+    --away: 45 93% 47%;
+    --offline: 215 16% 47%;
+
+    /* Dark Mode Interactive */
+    --hover: 217 32% 27%;
+    --active: 217 32% 30%;
+
+    /* Dark Mode Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(217 91% 70%));
+    --gradient-surface: linear-gradient(180deg, hsl(215 28% 17%), hsl(217 32% 19%));
+
+    /* Dark Mode Sidebar */
+    --sidebar-background: 215 28% 17%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 32% 23%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 217 32% 23%;
+    --sidebar-ring: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* RTL Support */
+  .rtl {
+    direction: rtl;
+  }
+  
+  .rtl .text-left {
+    text-align: right;
+  }
+  
+  .rtl .text-right {
+    text-align: left;
+  }
+  
+  .rtl .ml-auto {
+    margin-left: 0;
+    margin-right: auto;
+  }
+  
+  .rtl .mr-auto {
+    margin-right: 0;
+    margin-left: auto;
+  }
+}

@@ -1,372 +1,201 @@
-import { useState } from "react";
-import { Search, Settings, Book, MessageSquare, Filter, Tag, Bot, BotOff, Sun, Moon, Globe, Archive, RotateCcw, Trash2, Ban } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { PlatformIcon } from "./PlatformIcon";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { useTheme } from "next-themes";
-import { cn } from "@/lib/utils";
-import { Chat } from "./MessengerApp";
-interface ChatListProps {
-  chats: Chat[];
-  selectedChat: Chat | null;
-  onSelectChat: (chat: Chat) => void;
-  onToggleChatList: () => void;
-  onToggleContextPanel: () => void;
-  onToggleAI: (chatId: string) => void;
-  showArchived: boolean;
-  showBlocked: boolean;
-  onToggleArchived: () => void;
-  onToggleBlocked: () => void;
-  onUnarchiveChat: (chatId: string) => void;
-  onUnblockChat: (chatId: string) => void;
-  onDeleteChat: (chatId: string) => void;
-}
-const tagColors = {
-  urgent: "bg-destructive text-destructive-foreground",
-  "follow-up": "bg-primary text-primary-foreground",
-  sale: "bg-whatsapp text-white",
-  pricing: "bg-away text-white",
-  meeting: "bg-vk text-white",
-  project: "bg-telegram text-white",
-  "call-scheduled": "bg-instagram text-white"
+
+import React, { useMemo } from 'react';
+import { useChat } from '../context/ChatContext';
+import { useNotification } from '../context/NotificationContext';
+
+export const ChatList: React.FC = () => {
+  const { state, actions } = useChat();
+  const { showNotification } = useNotification();
+
+  const { waitingChats, aiChats } = useMemo(() => {
+    let filtered = state.chats;
+
+    // Filter by search term using available fields
+    if (state.searchTerm) {
+      const term = state.searchTerm.toLowerCase();
+      filtered = filtered.filter(chat => {
+        const name = (chat.user_id || '').toLowerCase();
+        const preview = (chat.last_message?.message || '').toLowerCase();
+        return name.includes(term) || preview.includes(term);
+      });
+    }
+
+    // Separate chats into waiting and AI categories
+    const waitingChats = filtered.filter(chat => 
+      !chat.ai_enabled && chat.is_awaiting_manager_confirmation
+    );
+    const aiChats = filtered.filter(chat => 
+      chat.ai_enabled || !chat.is_awaiting_manager_confirmation
+    );
+
+    // Sort each category by last message time
+    const sortByTime = (a: any, b: any) => {
+      const aTime = a.last_message?.created_at || a.updated_at || a.created_at;
+      const bTime = b.last_message?.created_at || b.updated_at || b.created_at;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    };
+
+    return {
+      waitingChats: [...waitingChats].sort(sortByTime),
+      aiChats: [...aiChats].sort(sortByTime)
+    };
+  }, [state.chats, state.searchTerm]);
+
+  const handleChatSelect = async (chatId: string) => {
+    try {
+      await actions.selectChat(chatId);
+    } catch (error) {
+      showNotification('error', 'Failed to load chat');
+    }
+  };
+
+  const handleAIToggle = async (chatId: string, currentAIStatus: boolean) => {
+    try {
+      const newAIStatus = !currentAIStatus;
+      await actions.updateChat(chatId, { 
+        ai_enabled: newAIStatus
+        // Backend will automatically set waiting = !ai_enabled
+      });
+      showNotification('success', `AI ${newAIStatus ? 'enabled' : 'disabled'} for this chat`);
+    } catch (error) {
+      showNotification('error', 'Failed to toggle AI status');
+    }
+  };
+
+  const formatTime = (timestampIso: string) => {
+    const ts = new Date(timestampIso);
+    const now = new Date();
+    const diff = now.getTime() - ts.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    return 'Just now';
+  };
+
+  if (state.loading && state.chats.length === 0) {
+    return (
+      <div className="loading">
+        <div className="loading-spinner">⟳</div>
+        Loading chats...
+      </div>
+    );
+  }
+
+  const renderChatItem = (chat: any) => (
+    <div
+      key={chat.id}
+      className={`chat-item ${chat.id === state.selectedChatId ? 'selected' : ''}`}
+      onClick={() => handleChatSelect(chat.id)}
+    >
+      <div className="chat-header">
+        <div className="chat-name">{(chat.user_id || '').split(' [')[0] || 'Unknown user'}</div>
+        <div className="chat-time">{formatTime(chat.last_message?.created_at || chat.updated_at || chat.created_at)}</div>
+      </div>
+      <div className="chat-preview">{chat.last_message?.message || ''}</div>
+      <div className="chat-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: '0.75rem', color: '#374151' }}>
+          {typeof (chat as any).message_count === 'number' ? (chat as any).message_count : ''}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Show AI indicator only when AI is enabled */}
+          {chat.ai_enabled && (
+            <div 
+              className="ai-indicator"
+              style={{ 
+                fontSize: '0.75rem', 
+                color: '#10b981',
+                backgroundColor: '#d1fae5',
+                padding: '2px 6px',
+                borderRadius: '4px'
+              }}
+            >
+              AI
+            </div>
+          )}
+          {/* Show waiting indicator when AI is disabled and waiting for manager */}
+          {!chat.ai_enabled && chat.is_awaiting_manager_confirmation && (
+            <div 
+              className="waiting-indicator"
+              style={{ 
+                fontSize: '0.75rem', 
+                color: '#f59e0b',
+                backgroundColor: '#fef3c7',
+                padding: '2px 6px',
+                borderRadius: '4px'
+              }}
+            >
+              WAITING
+            </div>
+          )}
+          {/* AI Toggle Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAIToggle(chat.id, chat.ai_enabled);
+            }}
+            style={{
+              fontSize: '0.75rem',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              border: '1px solid #d1d5db',
+              backgroundColor: chat.ai_enabled ? '#10b981' : '#6b7280',
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            {chat.ai_enabled ? 'AI ON' : 'AI OFF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="chat-list">
+      {waitingChats.length === 0 && aiChats.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">💬</div>
+          <div className="empty-state-title">No chats found</div>
+          <div className="empty-state-description">
+            {state.searchTerm || state.selectedTags.length > 0
+              ? 'Try adjusting your search or filters'
+              : 'Chats will appear here when you receive messages'}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Waiting for Manager Section */}
+          {waitingChats.length > 0 && (
+            <div className="chat-section">
+              <div className="chat-section-header">
+                <div className="chat-section-title">
+                  <span className="waiting-icon">⏳</span>
+                  Waiting for Manager ({waitingChats.length})
+                </div>
+              </div>
+              {waitingChats.map(renderChatItem)}
+            </div>
+          )}
+
+          {/* AI Active Section */}
+          {aiChats.length > 0 && (
+            <div className="chat-section">
+              {waitingChats.length > 0 && <div className="chat-section-separator"></div>}
+              <div className="chat-section-header">
+                <div className="chat-section-title">
+                  <span className="ai-icon">🤖</span>
+                  AI Active ({aiChats.length})
+                </div>
+              </div>
+              {aiChats.map(renderChatItem)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 };
-export function ChatList({
-  chats,
-  selectedChat,
-  onSelectChat,
-  onToggleChatList,
-  onToggleContextPanel,
-  onToggleAI,
-  showArchived,
-  showBlocked,
-  onToggleArchived,
-  onToggleBlocked,
-  onUnarchiveChat,
-  onUnblockChat,
-  onDeleteChat
-}: ChatListProps) {
-  const {
-    t,
-    language,
-    setLanguage
-  } = useLanguage();
-  const {
-    theme,
-    setTheme
-  } = useTheme();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterAI, setFilterAI] = useState(false);
-  const [filterHuman, setFilterHuman] = useState(false);
-  const [filterPlatform, setFilterPlatform] = useState<string>("all");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterTag, setFilterTag] = useState<string>("all");
-  const filteredChats = chats.filter(chat => {
-    const matchesSearch = chat.contactName.toLowerCase().includes(searchQuery.toLowerCase()) || chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesAI = !filterAI || chat.isAI;
-    const matchesHuman = !filterHuman || !chat.isAI;
-    const matchesPlatform = filterPlatform === "all" || chat.platform === filterPlatform;
-    const matchesStatus = filterStatus === "all" || filterStatus === "ongoing" && chat.isOngoing || filterStatus === "closed" && !chat.isOngoing;
-    const matchesTag = filterTag === "all" || chat.tags.includes(filterTag);
-    return matchesSearch && matchesAI && matchesHuman && matchesPlatform && matchesStatus && matchesTag;
-  });
-  const activeChatCount = filteredChats.filter(chat => chat.isOngoing).length;
-  const aiChatCount = filteredChats.filter(chat => chat.isAI && chat.isOngoing).length;
-  const totalChatCount = chats.length;
-  const filteredChatCount = filteredChats.length;
-  return <div className="h-full flex flex-col bg-card">
-      {/* Header */}
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <MessageSquare className="h-5 w-5 text-primary" />
-            <div className="bg-primary text-primary-foreground rounded-full text-xs font-medium px-3 py-1 flex items-center justify-center whitespace-nowrap">
-              {activeChatCount} {showArchived ? t('archived') : showBlocked ? t('blocked') : t('active')}
-            </div>
-            <div className="bg-secondary text-secondary-foreground rounded-full text-xs font-medium flex items-center gap-1 px-3 py-1 whitespace-nowrap">
-              <Bot className="h-3 w-3" />
-              {aiChatCount} {t('ai_chats')}
-            </div>
-            <div className="bg-muted text-muted-foreground rounded-full text-xs font-medium px-3 py-1 flex items-center justify-center whitespace-nowrap">
-              {filteredChatCount}/{totalChatCount}
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onToggleArchived}
-              className="text-xs px-3 py-1 h-auto"
-            >
-              <Archive className="h-3 w-3 mr-1" />
-              {showArchived ? t('show_active') : t('show_archived')}
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onToggleBlocked}
-              className="text-xs px-3 py-1 h-auto"
-            >
-              <Ban className="h-3 w-3 mr-1" />
-              {showBlocked ? t('show_active') : t('show_blocked')}
-            </Button>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Select value={language} onValueChange={value => setLanguage(value as any)}>
-              <SelectTrigger className="w-8 h-8 p-0 flex items-center justify-center [&>svg:last-child]:hidden">
-                <Globe className="h-4 w-4" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">
-                  <div className="flex items-center gap-2">
-                    <img src="/lovable-uploads/4b11dd63-cc36-4c63-9ebb-cefaf764a104.png" alt="UK Flag" className="w-4 h-3 object-cover rounded-sm border border-border" />
-                    {t('english')}
-                  </div>
-                </SelectItem>
-                <SelectItem value="ru">
-                  <div className="flex items-center gap-2">
-                    <img src="/lovable-uploads/11f28d85-a152-4e6d-a9cc-114bff0a3656.png" alt="Russian Flag" className="w-4 h-3 object-cover rounded-sm border border-border" />
-                    {t('russian')}
-                  </div>
-                </SelectItem>
-                <SelectItem value="ar">
-                  <div className="flex items-center gap-2">
-                    <img src="/lovable-uploads/71067921-4010-4776-bdda-3b62af7561c4.png" alt="Saudi Flag" className="w-4 h-3 object-cover rounded-sm border border-border" />
-                    {t('arabic')}
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="ghost" size="sm" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onToggleContextPanel}>
-              <Book className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder={t('search_placeholder')} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10" />
-        </div>
-
-        {/* Filters */}
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('ai_control')}</span>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Switch checked={filterAI} onCheckedChange={setFilterAI} id="ai-filter" />
-                <label htmlFor="ai-filter" className="text-xs">{t('ai')}</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch checked={filterHuman} onCheckedChange={setFilterHuman} id="human-filter" />
-                <label htmlFor="human-filter" className="text-xs">{t('human')}</label>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={filterPlatform} onValueChange={setFilterPlatform}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Platform" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('all_platforms')}</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="telegram">Telegram</SelectItem>
-                <SelectItem value="vk">VK</SelectItem>
-                <SelectItem value="instagram">Instagram</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('all_status')}</SelectItem>
-                <SelectItem value="ongoing">{t('ongoing')}</SelectItem>
-                <SelectItem value="closed">{t('closed')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Select value={filterTag} onValueChange={setFilterTag}>
-            
-            <SelectContent>
-              <SelectItem value="all">{t('all_tags')}</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="follow-up">Follow-up</SelectItem>
-              <SelectItem value="sale">Sale</SelectItem>
-              <SelectItem value="meeting">Meeting</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Chat List */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {filteredChats.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            <p className="text-sm">No chats found</p>
-          </div>
-        ) : (
-          filteredChats.map(chat => <div key={chat.id} onClick={() => onSelectChat(chat)} className={cn("p-4 border-b border-border cursor-pointer transition-colors hover:bg-hover", selectedChat?.id === chat.id && "bg-active")}>
-            <div className="flex items-start gap-3">
-              {/* Platform Avatar */}
-              <div className="w-10 h-10 rounded-full border-2 border-border flex items-center justify-center bg-card">
-                <PlatformIcon platform={chat.platform} className="h-5 w-5" />
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm truncate">{chat.contactName}</span>
-                    {chat.isAI && <Bot className="h-4 w-4 text-primary" />}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={e => {
-                  e.stopPropagation();
-                  onToggleAI(chat.id);
-                }} className="p-1 h-6 w-6">
-                      {chat.isAI ? <Bot className="h-3 w-3 text-primary" /> : <BotOff className="h-3 w-3 text-muted-foreground" />}
-                    </Button>
-                    {showArchived && (
-                      <>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={e => {
-                            e.stopPropagation();
-                            onUnarchiveChat(chat.id);
-                          }} 
-                          className="p-1 h-6 w-6"
-                          title="Unarchive"
-                        >
-                          <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={e => e.stopPropagation()}
-                              className="p-1 h-6 w-6"
-                              title={t('delete_chat')}
-                            >
-                              <Trash2 className="h-3 w-3 text-muted-foreground" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t('delete_confirm_title')}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t('delete_confirm_description')}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={e => e.stopPropagation()}>{t('cancel')}</AlertDialogCancel>
-                              <AlertDialogAction 
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  onDeleteChat(chat.id);
-                                }}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {t('delete')}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </>
-                    )}
-                    {showBlocked && (
-                      <>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={e => {
-                            e.stopPropagation();
-                            onUnblockChat(chat.id);
-                          }} 
-                          className="p-1 h-6 w-6"
-                          title="Unblock"
-                        >
-                          <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={e => e.stopPropagation()}
-                              className="p-1 h-6 w-6"
-                              title={t('delete_chat')}
-                            >
-                              <Trash2 className="h-3 w-3 text-muted-foreground" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t('delete_confirm_title')}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t('delete_confirm_description')}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={e => e.stopPropagation()}>{t('cancel')}</AlertDialogCancel>
-                              <AlertDialogAction 
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  onDeleteChat(chat.id);
-                                }}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {t('delete')}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </>
-                    )}
-                    <span className="text-xs text-muted-foreground">{chat.timestamp}</span>
-                    {chat.unreadCount > 0 && <Badge className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs p-0">
-                        {chat.unreadCount}
-                      </Badge>}
-                  </div>
-                </div>
-                
-                <p className="text-sm text-muted-foreground truncate mb-2">
-                  {chat.lastMessage}
-                </p>
-
-                {/* Status and Tags */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={cn("w-2 h-2 rounded-full", chat.isOngoing ? "bg-online" : "bg-offline")} />
-                    <span className="text-xs text-muted-foreground">
-                      {chat.isOngoing ? t('ongoing') : t('closed')}
-                    </span>
-                  </div>
-                  
-                  {chat.tags.length > 0 && <div className="flex gap-1">
-                      {chat.tags.slice(0, 2).map(tag => <Badge key={tag} className={cn("text-xs px-1 py-0 rounded-full", tagColors[tag as keyof typeof tagColors] || "bg-muted text-muted-foreground")}>
-                          {tag}
-                        </Badge>)}
-                      {chat.tags.length > 2 && <Badge className="text-xs px-1 py-0 rounded-full bg-muted text-muted-foreground">
-                          +{chat.tags.length - 2}
-                        </Badge>}
-                    </div>}
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>;
-}

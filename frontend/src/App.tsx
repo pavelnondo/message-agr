@@ -1,48 +1,50 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
-import { AuthProvider, useAuth } from "./context/AuthContext";
-import LoginForm from "./components/LoginForm";
-import { ChatProvider } from "./context/ChatContext";
 
-const queryClient = new QueryClient();
+import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Toaster } from './components/ui/toaster';
+import { ThemeProvider } from './context/ThemeContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { LoginForm } from './components/LoginForm';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoadingScreen } from './components/LoadingScreen';
+import Index from './pages/Index';
+import NotFound from './pages/NotFound';
+import './App.css';
 
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
+// Main App Content
+const AppContent: React.FC = () => {
+  const { isAuthenticated, isLoading, login } = useAuth();
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm onLogin={login} />;
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
+  );
 };
 
-const App = () => (
-  <AuthProvider>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginForm />} />
-            <Route
-              path="/"
-              element={
-                <RequireAuth>
-                  <ChatProvider>
-                    <Index />
-                  </ChatProvider>
-                </RequireAuth>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </AuthProvider>
-);
+// Main App Component
+const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <ThemeProvider>
+          <AppContent />
+          <Toaster />
+        </ThemeProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  );
+};
 
 export default App;
