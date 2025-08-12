@@ -100,6 +100,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showJumpButton, setShowJumpButton] = useState(false);
+  const justOpenedRef = useRef<boolean>(true);
 
   // Keep local AI toggle state in sync with selected chat
   useEffect(() => {
@@ -126,7 +127,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const scrollToBottom = () => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     setShowJumpButton(false);
   };
 
@@ -143,14 +144,24 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     if (!el) return;
     const threshold = 120;
     const bottomOutOfView = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
-    if (!bottomOutOfView) scrollToBottom();
-    else if (messages.length > 0) setShowJumpButton(true);
+    if (justOpenedRef.current) {
+      // First load after opening chat: always jump to bottom
+      el.scrollTop = el.scrollHeight;
+      justOpenedRef.current = false;
+      setShowJumpButton(false);
+      setIsNearBottom(true);
+    } else if (!bottomOutOfView) {
+      scrollToBottom();
+    } else if (messages.length > 0) {
+      setShowJumpButton(true);
+    }
   }, [messages.length, selectedChat?.id]);
 
   // On chat change, always jump to latest after render
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    justOpenedRef.current = true;
     // Allow DOM to render first
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
@@ -406,11 +417,14 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
         ))}
 
         {/* Jump to latest button (circular down-arrow) */}
+        {/* Overlay container spanning the scroll viewport */}
         {showJumpButton && (
-          <div className="absolute bottom-6 right-6">
-            <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
-              <ArrowDown className="h-5 w-5" />
-            </Button>
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute bottom-6 right-6 pointer-events-auto">
+              <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
+                <ArrowDown className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         )}
       </div>
