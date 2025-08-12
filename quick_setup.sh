@@ -1,44 +1,24 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Quick Setup Script for Message Aggregator on VPS
-# Run this script on your VPS: ssh root@217.151.231.249
+echo "🚀 Quick Setup for Message Aggregator"
 
-set -e
-
-echo "🚀 Quick Setup for Message Aggregator on VPS"
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "❌ Please run as root: sudo bash quick_setup.sh"
-    exit 1
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required. Please install Docker and retry."
+  exit 1
+fi
+if ! command -v docker compose >/dev/null 2>&1; then
+  echo "Docker Compose V2 is required. Please install/update Docker Desktop/Engine."
+  exit 1
 fi
 
-# Update system
-echo "📦 Updating system..."
-apt update && apt upgrade -y
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Install Docker
-echo "🐳 Installing Docker..."
-apt install -y docker.io docker-compose
-systemctl start docker
-systemctl enable docker
+if [ ! -f .env ]; then
+  if [ -f .env.example ]; then cp .env.example .env; fi
+  if [ -f env.sample ]; then cp env.sample .env; fi
+fi
 
-# Create application directory
-echo "📁 Creating application directory..."
-mkdir -p /opt/message_aggregator
-cd /opt/message_aggregator
-
-# Create the application structure
-mkdir -p {backend,frontend,nginx}
-
-echo "✅ Basic setup complete!"
-echo ""
-echo "📋 Next steps:"
-echo "1. Upload your backend/ and frontend/ folders to /opt/message_aggregator/"
-echo "2. Run the database setup: sudo -u postgres psql -d message_aggregator -f setup_database.sql"
-echo "3. Configure .env file with your PostgreSQL credentials"
-echo "4. Run: docker-compose up -d"
-echo ""
-echo "🌐 Your application will be available at:"
-echo "   - Main app: http://217.151.231.249"
-echo "   - API: http://217.151.231.249:5678" 
+docker compose up -d --build
+docker compose ps | cat
