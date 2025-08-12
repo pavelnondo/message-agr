@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChatList } from "./ChatList";
 import { MessageView } from "./MessageView";
 import { ContextPanel } from "./ContextPanel";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "next-themes";
 import { cn } from "@/lib/utils";
+import * as api from "@/api/api";
 
 export interface Chat {
   id: string;
@@ -21,7 +22,7 @@ export interface Chat {
   avatar?: string;
 }
 
-// Mock data - TODO: Replace with backend integration
+// Mock data kept as placeholder during initial load
 const mockChats: Chat[] = [
   {
     id: "1",
@@ -201,6 +202,65 @@ export function MessengerApp() {
   const [showArchived, setShowArchived] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
   const [chats, setChats] = useState<Chat[]>(mockChats);
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Array<{ id: string; content: string; timestamp: string; isOutgoing: boolean; isRead: boolean; platform: Chat['platform'] }>>>({});
+
+  // Load chats from backend and enrich with platform (messager) and names
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.getChats();
+        // Map base fields
+        let mapped: Chat[] = data.map((c) => ({
+          id: c.id,
+          platform: 'telegram',
+          contactName: c.user_id || 'Unknown',
+          lastMessage: c.last_message?.message || '',
+          timestamp: c.last_message?.created_at || '',
+          unreadCount: 0,
+          isAI: typeof c.ai_enabled === 'boolean' ? c.ai_enabled : true,
+          isOngoing: true,
+          isArchived: false,
+          isBlocked: false,
+          tags: [],
+        }));
+        setChats(mapped);
+        // Enrich with chat details (messager) in parallel
+        const details = await Promise.allSettled(
+          mapped.map((c) => api.api.get(`/api/chats/${c.id}`))
+        );
+        mapped = mapped.map((c, idx) => {
+          const d = details[idx];
+          if (d.status === 'fulfilled') {
+            const det = d.value.data || {};
+            const platform = (det.messager as string) || 'telegram';
+            const name = det.name || c.contactName;
+            return { ...c, platform: platform as Chat['platform'], contactName: name };
+          }
+          return c;
+        });
+        setChats(mapped);
+      } catch {}
+    })();
+  }, []);
+
+  // Load messages when a chat is selected
+  useEffect(() => {
+    if (!selectedChat) return;
+    (async () => {
+      try {
+        const list = await api.getMessages(selectedChat.id);
+        const mapped = list.map((m) => ({
+          id: m.id,
+          content: m.message,
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isOutgoing: m.message_type === 'answer',
+          isRead: true,
+          platform: selectedChat.platform,
+        }));
+        setMessagesByChat((prev) => ({ ...prev, [selectedChat.id]: mapped }));
+      } catch {}
+    })();
+  }, [selectedChat?.id]);
 
   const handleToggleAI = (chatId: string) => {
     setChats(prevChats => 
@@ -256,6 +316,19 @@ export function MessengerApp() {
 
   const handleCloseChat = () => {
     setSelectedChat(null);
+  };
+
+  const currentMessages = useMemo(() => {
+    if (!selectedChat) return [] as Array<{ id: string; content: string; timestamp: string; isOutgoing: boolean; isRead: boolean; platform: Chat['platform'] }>;
+    return messagesByChat[selectedChat.id] || [];
+  }, [messagesByChat, selectedChat?.id]);
+
+  const handleMessageSent = (chatId: string, optimistic: { id: string; content: string; timestamp: string; isOutgoing: boolean; isRead: boolean; platform: Chat['platform'] }) => {
+    setMessagesByChat((prev) => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), optimistic],
+    }));
+    setChats((prev) => prev.map(c => c.id === chatId ? { ...c, lastMessage: optimistic.content, timestamp: new Date().toISOString() } : c));
   };
 
   const handleBlockChat = (chatId: string) => {
@@ -345,6 +418,8 @@ export function MessengerApp() {
               onBlockChat={handleBlockChat}
               onUnblockChat={handleUnblockChat}
               onToggleChatStatus={handleToggleChatStatus}
+              messages={currentMessages}
+              onMessageSent={handleMessageSent}
             />
           </div>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Send, Paperclip, MoreVertical, Archive, Trash2, X, Menu, Bot, BotOff, Check, CheckCheck, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 
 import { Chat } from "./MessengerApp";
+import { sendMessage as sendMessageApi } from "@/api/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface Message {
   id: string;
@@ -34,10 +36,12 @@ interface MessageViewProps {
   onBlockChat: (chatId: string) => void;
   onUnblockChat: (chatId: string) => void;
   onToggleChatStatus: (chatId: string) => void;
+  messages?: Message[];
+  onMessageSent?: (chatId: string, message: Message) => void;
 }
 
 
-// Mock messages - TODO: Replace with backend integration
+// Mock messages - fallback when API not available
 const mockMessages: Record<string, Message[]> = {
   "1": [
     {
@@ -85,8 +89,9 @@ const mockMessages: Record<string, Message[]> = {
   ]
 };
 
-export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, onUpdateTags, onArchiveChat, onUnarchiveChat, onDeleteChat, onCloseChat, onBlockChat, onUnblockChat, onToggleChatStatus }: MessageViewProps) {
+export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, onUpdateTags, onArchiveChat, onUnarchiveChat, onDeleteChat, onCloseChat, onBlockChat, onUnblockChat, onToggleChatStatus, messages: externalMessages, onMessageSent }: MessageViewProps) {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [messageText, setMessageText] = useState("");
   const [isAIEnabled, setIsAIEnabled] = useState(selectedChat?.isAI || false);
   const [newTag, setNewTag] = useState("");
@@ -95,14 +100,29 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   // Debug log to check chat status
   console.log("Selected chat:", selectedChat?.contactName, "isOngoing:", selectedChat?.isOngoing);
 
-  const messages = selectedChat ? mockMessages[selectedChat.id] || [] : [];
+  const messages = useMemo(() => {
+    if (!selectedChat) return [] as Message[];
+    if (externalMessages && externalMessages.length > 0) return externalMessages;
+    return mockMessages[selectedChat.id] || [];
+  }, [selectedChat, externalMessages]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedChat) return;
-    
-    // TODO: Implement message sending to backend
-    console.log("Sending message:", messageText);
-    setMessageText("");
+    try {
+      const tenantId = user?.tenant_id || 'default';
+      await sendMessageApi(selectedChat.id, messageText, 'answer', tenantId);
+      const optimistic: Message = {
+        id: `${Date.now()}`,
+        content: messageText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isOutgoing: true,
+        isRead: false,
+        platform: selectedChat.platform,
+      };
+      onMessageSent && onMessageSent(selectedChat.id, optimistic);
+    } finally {
+      setMessageText("");
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
