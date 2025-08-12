@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Send, Paperclip, MoreVertical, Archive, Trash2, X, Menu, Bot, BotOff, Check, CheckCheck, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -97,6 +97,9 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const [isAIEnabled, setIsAIEnabled] = useState(selectedChat?.isAI || false);
   const [newTag, setNewTag] = useState("");
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
 
   // Keep local AI toggle state in sync with selected chat
   useEffect(() => {
@@ -109,6 +112,40 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     if (externalMessages && externalMessages.length > 0) return externalMessages;
     return [];
   }, [selectedChat, externalMessages]);
+
+  // Scroll tracking
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 120;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsNearBottom(atBottom);
+    if (atBottom) setShowJumpButton(false);
+  };
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setShowJumpButton(false);
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // When new messages arrive, auto-scroll if near bottom; otherwise show jump button
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 120;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    if (atBottom) scrollToBottom();
+    else if (messages.length > 0) setShowJumpButton(true);
+  }, [messages.length, selectedChat?.id]);
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedChat) return;
@@ -319,7 +356,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-background to-muted/20">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-background to-muted/20">
         {messages.map((message, index) => (
           <div
             key={message.id}
@@ -356,7 +393,14 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
           </div>
         ))}
 
-        {/* Typing indicator intentionally removed */}
+        {/* Jump to latest button */}
+        {showJumpButton && (
+          <div className="fixed bottom-24 right-6">
+            <Button size="sm" className="shadow" onClick={scrollToBottom}>
+              Jump to latest
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Input Area */}
