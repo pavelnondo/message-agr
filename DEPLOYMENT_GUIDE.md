@@ -7,15 +7,13 @@
 
 ## Step 1: Connect to Your VPS
 ```bash
-ssh root@217.151.231.249
+ssh root@YOUR_VPS_IP
 ```
 
 ## Step 2: Run the Deployment Script
 ```bash
 # Download and run the deployment script
-curl -O https://raw.githubusercontent.com/your-repo/deploy.sh
-chmod +x deploy.sh
-./deploy.sh
+git clone YOUR_REPO_URL /opt/message_aggregator || true
 ```
 
 ## Step 3: Upload Your Application Files
@@ -23,8 +21,8 @@ You have several options:
 
 ### Option A: Using SCP (from your local machine)
 ```bash
-scp -r ./backend root@217.151.231.249:/opt/message_aggregator/
-scp -r ./frontend root@217.151.231.249:/opt/message_aggregator/
+scp -r ./backend root@YOUR_VPS_IP:/opt/message_aggregator/
+scp -r ./frontend root@YOUR_VPS_IP:/opt/message_aggregator/
 ```
 
 ### Option B: Using Git (if you have a repository)
@@ -81,17 +79,13 @@ N8N_WEBHOOK_URL=http://217.151.231.249:5678/webhook/your_webhook_id
 ```bash
 cd /opt/message_aggregator
 
-# Build the containers
-docker-compose build
-
-# Start all services
-docker-compose up -d
+docker compose up -d --build
 
 # Check the status
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ## Step 7: Configure Firewall (if needed)
@@ -109,53 +103,52 @@ ufw allow 15672 # RabbitMQ management
 
 ## Step 8: Test the Application
 
-Your application will be available at:
-- **Main Application**: http://217.151.231.249
-- **API Endpoint**: http://217.151.231.249:5678
-- **MinIO Console**: http://217.151.231.249:9001
-- **RabbitMQ Management**: http://217.151.231.249:15672
+Your application (default ports):
+- Frontend via Nginx: http://YOUR_VPS_IP:8090
+- Backend API: http://YOUR_VPS_IP:8000
+- MinIO Console: http://YOUR_VPS_IP:9001
+- RabbitMQ Management: http://YOUR_VPS_IP:15672
 
 ## Step 9: Set Up Domain (Optional)
 
 If you have a domain name:
 
-1. Point your domain to your VPS IP: `217.151.231.249`
+1. Point your domain to your VPS IP
 2. Update the `.env` file with your domain:
    ```env
    N8N_WEBHOOK_URL=http://yourdomain.com:5678/webhook/your_webhook_id
    ```
 3. Restart the services:
    ```bash
-   docker-compose restart
+   docker compose restart
    ```
 
 ## Management Commands
 
 ### View logs
 ```bash
-docker-compose logs -f backend
-docker-compose logs -f frontend
-docker-compose logs -f nginx
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f nginx
 ```
 
 ### Restart services
 ```bash
-docker-compose restart
-docker-compose restart backend
-docker-compose restart frontend
+docker compose restart
+docker compose restart backend
+docker compose restart frontend
 ```
 
 ### Stop all services
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Update the application
 ```bash
 cd /opt/message_aggregator
 git pull  # if using git
-docker-compose build
-docker-compose up -d
+docker compose up -d --build
 ```
 
 ## Troubleshooting
@@ -163,7 +156,7 @@ docker-compose up -d
 ### Check if services are running
 ```bash
 docker ps
-docker-compose ps
+docker compose ps
 ```
 
 ### Check database connection
@@ -189,7 +182,7 @@ docker exec nginx nginx -t
 
 ### View real-time logs
 ```bash
-docker-compose logs -f --tail=100
+docker compose logs -f --tail=100
 ```
 
 ## Security Considerations

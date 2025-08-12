@@ -19,6 +19,8 @@ services:
     container_name: backend
     build:
       context: ./backend
+    depends_on:
+      - db
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -59,10 +61,12 @@ services:
     restart: always
     ports:
       - "5433:5432"
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: message_aggregator
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: pavel123
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -84,9 +88,11 @@ services:
     ports:
       - "15672:15672"
       - "5672:5672"
+    env_file:
+      - .env
     environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin123
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
