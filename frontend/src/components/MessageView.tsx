@@ -118,9 +118,9 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     const el = scrollRef.current;
     if (!el) return;
     const threshold = 120;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    setIsNearBottom(atBottom);
-    setShowJumpButton(!atBottom);
+    const bottomOutOfView = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
+    setIsNearBottom(!bottomOutOfView);
+    setShowJumpButton(bottomOutOfView);
   };
 
   const scrollToBottom = () => {
@@ -142,10 +142,22 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     const el = scrollRef.current;
     if (!el) return;
     const threshold = 120;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    if (atBottom) scrollToBottom();
+    const bottomOutOfView = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
+    if (!bottomOutOfView) scrollToBottom();
     else if (messages.length > 0) setShowJumpButton(true);
   }, [messages.length, selectedChat?.id]);
+
+  // On chat change, always jump to latest after render
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Allow DOM to render first
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+      setShowJumpButton(false);
+      setIsNearBottom(true);
+    });
+  }, [selectedChat?.id]);
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedChat) return;
