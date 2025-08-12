@@ -231,7 +231,7 @@ export async function saveAISettings(settings: BotSettings): Promise<{ message: 
   return await response.json();
 }
 
-export function connectMessagesWebSocket(onMessage: (message: Message) => void): WebSocket | null {
+export function connectMessagesWebSocket(onMessage: (message: Partial<Message> & { user_id?: string }) => void): WebSocket | null {
   try {
     const wsUrl = `${API_CONFIG.WS_BASE}${ENDPOINTS.WS_MESSAGES}`;
     const ws = new WebSocket(wsUrl);
@@ -240,7 +240,15 @@ export function connectMessagesWebSocket(onMessage: (message: Message) => void):
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'new_message') {
-          onMessage({ id: data.data.id.toString(), chat_id: data.data.chat_id.toString(), message: data.data.message, message_type: data.data.message_type, created_at: data.data.created_at });
+          const p = data.data || {};
+          onMessage({
+            id: p.id ? String(p.id) : `${Date.now()}`,
+            chat_id: p.chat_id ? String(p.chat_id) : '',
+            message: p.message,
+            message_type: p.message_type,
+            created_at: p.created_at || new Date().toISOString(),
+            user_id: p.user_id,
+          });
         }
       } catch (error) { console.error('Error parsing WebSocket message:', error); }
     };

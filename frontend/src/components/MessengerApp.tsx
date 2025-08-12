@@ -234,7 +234,7 @@ export function MessengerApp() {
           if (d.status === 'fulfilled') {
             const det = d.value.data || {};
             const platform = (det.messager as string) || 'telegram';
-            const name = det.name || c.contactName;
+            const name = det.name || det.user_id || c.contactName;
             return { ...c, platform: platform as Chat['platform'], contactName: name };
           }
           return c;
@@ -266,16 +266,22 @@ export function MessengerApp() {
   // Live WebSocket updates for messages and chat updates
   useEffect(() => {
     const wsMessages = connectMessagesWebSocket((msg) => {
+      if (!msg.chat_id) return;
       const mapped = {
-        id: msg.id,
-        content: msg.message,
-        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isOutgoing: msg.message_type === 'answer',
+        id: msg.id!,
+        content: msg.message!,
+        timestamp: new Date(msg.created_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isOutgoing: msg.message_type === 'answer' ? true : false,
         isRead: true,
         platform: 'telegram' as Chat['platform'],
       };
-      setMessagesByChat((prev) => ({ ...prev, [msg.chat_id]: [...(prev[msg.chat_id] || []), mapped] }));
-      setChats((prev) => prev.map(c => c.id === msg.chat_id ? { ...c, lastMessage: msg.message, timestamp: msg.created_at } : c));
+      setMessagesByChat((prev) => {
+        const last = (prev[msg.chat_id!] || []).slice(-1)[0];
+        // Prevent duplicate immediate echo (same content within 2s)
+        if (last && last.content === mapped.content) return prev;
+        return { ...prev, [msg.chat_id!]: [...(prev[msg.chat_id!] || []), mapped] };
+      });
+      setChats((prev) => prev.map(c => c.id === msg.chat_id ? { ...c, lastMessage: msg.message!, timestamp: msg.created_at! } : c));
     });
 
     const wsUpdates = connectChatUpdatesWebSocket((chat) => {
