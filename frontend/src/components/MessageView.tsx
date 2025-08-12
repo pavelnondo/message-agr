@@ -38,6 +38,7 @@ interface MessageViewProps {
   onToggleChatStatus: (chatId: string) => void;
   messages?: Message[];
   onMessageSent?: (chatId: string, message: Message) => void;
+  onToggleAI?: (chatId: string) => void;
 }
 
 
@@ -89,7 +90,7 @@ const mockMessages: Record<string, Message[]> = {
   ]
 };
 
-export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, onUpdateTags, onArchiveChat, onUnarchiveChat, onDeleteChat, onCloseChat, onBlockChat, onUnblockChat, onToggleChatStatus, messages: externalMessages, onMessageSent }: MessageViewProps) {
+export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, onUpdateTags, onArchiveChat, onUnarchiveChat, onDeleteChat, onCloseChat, onBlockChat, onUnblockChat, onToggleChatStatus, messages: externalMessages, onMessageSent, onToggleAI }: MessageViewProps) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const [messageText, setMessageText] = useState("");
@@ -97,8 +98,10 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const [newTag, setNewTag] = useState("");
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
 
-  // Debug log to check chat status
-  console.log("Selected chat:", selectedChat?.contactName, "isOngoing:", selectedChat?.isOngoing);
+  // Keep local AI toggle state in sync with selected chat
+  React.useEffect(() => {
+    setIsAIEnabled(!!selectedChat?.isAI);
+  }, [selectedChat?.id, selectedChat?.isAI]);
 
   const messages = useMemo(() => {
     if (!selectedChat) return [] as Message[];
@@ -216,7 +219,11 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
             <Button
               variant={isAIEnabled ? "default" : "outline"}
               size="sm"
-              onClick={() => setIsAIEnabled(!isAIEnabled)}
+              onClick={() => {
+                if (!selectedChat) return;
+                setIsAIEnabled(!isAIEnabled);
+                onToggleAI && onToggleAI(selectedChat.id);
+              }}
               className="gap-2"
             >
               {isAIEnabled ? <Bot className="h-4 w-4" /> : <BotOff className="h-4 w-4" />}
@@ -349,19 +356,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
           </div>
         ))}
 
-        {/* Typing Indicator */}
-        <div className="flex justify-start">
-          <div className="bg-message-received text-message-received-foreground rounded-2xl rounded-bl-sm px-4 py-2 border">
-            <div className="flex items-center gap-1">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-              <span className="text-xs text-muted-foreground ml-2">{t('typing')}</span>
-            </div>
-          </div>
-        </div>
+        {/* Typing indicator intentionally removed */}
       </div>
 
       {/* Input Area */}

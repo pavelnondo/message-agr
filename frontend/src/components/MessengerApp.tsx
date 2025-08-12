@@ -453,6 +453,7 @@ export function MessengerApp() {
               onBlockChat={handleBlockChat}
               onUnblockChat={handleUnblockChat}
               onToggleChatStatus={handleToggleChatStatus}
+              onToggleAI={handleToggleAI}
               messages={currentMessages}
               onMessageSent={handleMessageSent}
             />
