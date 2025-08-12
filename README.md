@@ -1,8 +1,8 @@
-Message Aggregator – Local and VPS Deployment
+Message Aggregator – Setup and Run
 
 Quick start
-- Copy `.env.example` to `.env` and set credentials.
-- Run: `docker compose up -d --build`
+- Copy `.env.example` (or `env.sample`) to `.env` and set credentials.
+- Run: `bash quick_setup.sh` or `docker compose up -d --build`
 - Open frontend at http://localhost:8090, API at http://localhost:8000
 
 Environment variables (.env)
@@ -13,7 +13,7 @@ Environment variables (.env)
 - DB_PASSWORD=change_me
 - DATABASE_URL=postgresql+asyncpg://postgres:change_me@db:5432/message_aggregator
 - BOT_TOKEN=fill
-- N8N_WEBHOOK_URL=http://n8n/webhook/xxx (or leave empty)
+- N8N_WEBHOOK_URL=
 - JWT_SECRET_KEY=change_me
 - MINIO_LOGIN=minio
 - MINIO_PWD=change_me
@@ -25,3 +25,5 @@ Environment variables (.env)
 Notes
 - Backend reads `DATABASE_URL` or DB_* parts via `backend/shared.py`.
 - Frontend reads `VITE_API_URL`/`VITE_WS_URL` at build/runtime (empty = same origin).
+
+For full instructions see `DEPLOYMENT_GUIDE.md`.
