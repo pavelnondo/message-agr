@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, FileText, HelpCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getAISettings, saveAISettings } from "@/api/api";
 interface ContextPanelProps {
   onClose: () => void;
 }
@@ -17,29 +18,40 @@ export function ContextPanel({
   const [faqText, setFaqText] = useState("");
   const [isSubmittingContext, setIsSubmittingContext] = useState(false);
   const [isSubmittingFAQ, setIsSubmittingFAQ] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Load AI settings from backend (system_message, faqs)
+  useEffect(() => {
+    (async () => {
+      try {
+        setIsLoading(true);
+        const settings = await getAISettings();
+        setContextText(settings.system_message || "");
+        setFaqText(settings.faqs || "");
+      } catch {
+        // ignore
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
   const handleSubmitContext = async () => {
-    if (!contextText.trim()) return;
+    if (!contextText.trim() && !faqText.trim()) return;
     setIsSubmittingContext(true);
-
-    // TODO: Implement context submission to backend
-    console.log("Submitting context:", contextText);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setContextText("");
-    setIsSubmittingContext(false);
+    try {
+      await saveAISettings({ system_message: contextText, faqs: faqText });
+    } finally {
+      setIsSubmittingContext(false);
+    }
   };
   const handleSubmitFAQ = async () => {
-    if (!faqText.trim()) return;
+    if (!contextText.trim() && !faqText.trim()) return;
     setIsSubmittingFAQ(true);
-
-    // TODO: Implement FAQ submission to backend
-    console.log("Submitting FAQ:", faqText);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setFaqText("");
-    setIsSubmittingFAQ(false);
+    try {
+      await saveAISettings({ system_message: contextText, faqs: faqText });
+    } finally {
+      setIsSubmittingFAQ(false);
+    }
   };
 
   // Mock existing context and FAQs - TODO: Replace with backend data
@@ -98,7 +110,7 @@ export function ContextPanel({
 
           <TabsContent value="context" className="m-4 mt-6 space-y-4">
             {/* Add Context Form */}
-            <div className="space-y-3">
+           <div className="space-y-3">
               <h3 className="font-medium text-sm">{t('add_context')}</h3>
               <Textarea 
                 placeholder={t('context_placeholder')} 
@@ -106,7 +118,7 @@ export function ContextPanel({
                 onChange={e => setContextText(e.target.value)} 
                 className={cn("min-h-[100px]", isRTL && "text-right")} 
               />
-              <Button onClick={handleSubmitContext} disabled={!contextText.trim() || isSubmittingContext} className="w-full">
+              <Button onClick={handleSubmitContext} disabled={isLoading || isSubmittingContext} className="w-full">
                 {isSubmittingContext ? t('submitting') : <>
                     <Send className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
                     {t('add_context')}
@@ -141,7 +153,7 @@ export function ContextPanel({
                 onChange={e => setFaqText(e.target.value)} 
                 className={cn("min-h-[100px]", isRTL && "text-right")} 
               />
-              <Button onClick={handleSubmitFAQ} disabled={!faqText.trim() || isSubmittingFAQ} className="w-full">
+              <Button onClick={handleSubmitFAQ} disabled={isLoading || isSubmittingFAQ} className="w-full">
                 {isSubmittingFAQ ? t('submitting') : <>
                     <Send className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
                     {t('add_faq')}

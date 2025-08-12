@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChatList } from "./ChatList";
 import { MessageView } from "./MessageView";
 import { ContextPanel } from "./ContextPanel";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "next-themes";
 import { cn } from "@/lib/utils";
+import * as api from "@/api/api";
+import { connectMessagesWebSocket, connectChatUpdatesWebSocket } from "@/api/api";
 
 export interface Chat {
   id: string;
@@ -21,7 +23,7 @@ export interface Chat {
   avatar?: string;
 }
 
-// Mock data - TODO: Replace with backend integration
+// Mock data - kept as placeholder; will be replaced by backend on load
 const mockChats: Chat[] = [
   {
     id: "1",
@@ -201,15 +203,98 @@ export function MessengerApp() {
   const [showArchived, setShowArchived] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
   const [chats, setChats] = useState<Chat[]>(mockChats);
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Array<{ id: string; content: string; timestamp: string; isOutgoing: boolean; isRead: boolean; platform: Chat['platform'] }>>>({});
+
+  const mapApiChatToUi = (c: api.Chat): Chat => ({
+    id: c.id,
+    platform: 'telegram',
+    contactName: c.user_id || 'Unknown',
+    lastMessage: c.last_message?.message || '',
+    timestamp: c.last_message?.created_at || '',
+    unreadCount: 0,
+    isAI: typeof c.ai_enabled === 'boolean' ? c.ai_enabled : true,
+    isOngoing: true,
+    isArchived: false,
+    isBlocked: false,
+    tags: [],
+  });
+
+  // Load chats from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.getChats();
+        const mapped: Chat[] = data.map(mapApiChatToUi);
+        setChats(mapped);
+      } catch {}
+    })();
+  }, []);
+
+  // Load messages when selecting a chat
+  useEffect(() => {
+    if (!selectedChat) return;
+    (async () => {
+      try {
+        const list = await api.getMessages(selectedChat.id);
+        const mapped = list.map((m) => ({
+          id: m.id,
+          content: m.message,
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isOutgoing: m.message_type === 'answer',
+          isRead: true,
+          platform: selectedChat.platform,
+        }));
+        setMessagesByChat((prev) => ({ ...prev, [selectedChat.id]: mapped }));
+      } catch {}
+    })();
+  }, [selectedChat?.id]);
+
+  // WebSocket connections for live updates
+  useEffect(() => {
+    // Messages WS
+    const wsMessages = connectMessagesWebSocket((msg) => {
+      const uiMsg = {
+        id: msg.id,
+        content: msg.message,
+        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isOutgoing: msg.message_type === 'answer',
+        isRead: true,
+        platform: 'telegram' as Chat['platform'],
+      };
+      setMessagesByChat((prev) => ({
+        ...prev,
+        [msg.chat_id]: [...(prev[msg.chat_id] || []), uiMsg],
+      }));
+      setChats((prev) => prev.map(ch => ch.id === msg.chat_id ? { ...ch, lastMessage: msg.message, timestamp: msg.created_at, unreadCount: selectedChat?.id === msg.chat_id ? ch.unreadCount : (ch.unreadCount + (selectedChat?.id === msg.chat_id ? 0 : 1)) } : ch));
+    });
+
+    // Chat updates WS
+    const wsUpdates = connectChatUpdatesWebSocket((chat) => {
+      setChats((prev) => {
+        const next = [...prev];
+        const idx = next.findIndex(c => c.id === chat.id);
+        const mapped = mapApiChatToUi(chat);
+        if (idx >= 0) next[idx] = { ...next[idx], ...mapped } as Chat;
+        return next;
+      });
+    });
+
+    return () => {
+      try { wsMessages && wsMessages.close(); } catch {}
+      try { wsUpdates && wsUpdates.close(); } catch {}
+    };
+  }, [selectedChat?.id]);
 
   const handleToggleAI = (chatId: string) => {
-    setChats(prevChats => 
-      prevChats.map(chat => 
-        chat.id === chatId 
-          ? { ...chat, isAI: !chat.isAI }
-          : chat
-      )
-    );
+    const target = chats.find(c => c.id === chatId);
+    if (!target) return;
+    const nextEnabled = !target.isAI;
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, isAI: nextEnabled } : c));
+    // Persist to backend if supported
+    api.updateChat(chatId, { ai_enabled: nextEnabled }).catch(() => {
+      // rollback on failure
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, isAI: !nextEnabled } : c));
+    });
   };
 
   const handleUpdateTags = (chatId: string, newTags: string[]) => {
@@ -258,6 +343,18 @@ export function MessengerApp() {
     setSelectedChat(null);
   };
 
+  const currentMessages = useMemo(() => {
+    if (!selectedChat) return [];
+    return messagesByChat[selectedChat.id] || [];
+  }, [messagesByChat, selectedChat?.id]);
+
+  const handleMessageSent = (chatId: string, optimistic: { id: string; content: string; timestamp: string; isOutgoing: boolean; isRead: boolean; platform: Chat['platform'] }) => {
+    setMessagesByChat((prev) => ({
+      ...prev,
+      [chatId]: [...(prev[chatId] || []), optimistic],
+    }));
+  };
+
   const handleBlockChat = (chatId: string) => {
     setChats(prevChats => 
       prevChats.map(chat => 
@@ -294,6 +391,7 @@ export function MessengerApp() {
           : chat
       )
     );
+    // No direct server mapping for ongoing/closed; left as UI-only stub
   };
 
   // Filter chats based on archive and blocked status
@@ -345,6 +443,8 @@ export function MessengerApp() {
               onBlockChat={handleBlockChat}
               onUnblockChat={handleUnblockChat}
               onToggleChatStatus={handleToggleChatStatus}
+              messages={currentMessages}
+              onMessageSent={handleMessageSent}
             />
           </div>
 

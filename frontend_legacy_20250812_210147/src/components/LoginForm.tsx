@@ -6,15 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { useToast } from '../hooks/use-toast';
 import { api } from '../api/api';
-import { useAuth } from '@/context/AuthContext';
-import { useNavigate } from 'react-router-dom';
 
-const LoginForm: React.FC = () => {
+interface LoginFormProps {
+  onLogin: (token: string, user: any) => void;
+}
+
+export const LoginForm: React.FC<LoginFormProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('login');
   const { toast } = useToast();
-  const { login } = useAuth();
-  const navigate = useNavigate();
 
   // Login state
   const [loginData, setLoginData] = useState({
@@ -27,23 +27,20 @@ const LoginForm: React.FC = () => {
     username: '',
     email: '',
     password: '',
-    confirmPassword: '',
-    // Optional tenant label (backend assigns tenant automatically if omitted)
-    tenant_id: ''
+    confirmPassword: ''
   });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-      try {
+          try {
         const response = await api.post('/api/auth/login', loginData);
         const { access_token, user } = response.data;
         
-        // Persist via AuthContext
-        login(access_token, user);
-        navigate('/', { replace: true });
-
+        // Call parent callback
+        onLogin(access_token, user);
+      
       toast({
         title: "Login successful",
         description: `Welcome back, ${user.username}!`,
@@ -74,7 +71,7 @@ const LoginForm: React.FC = () => {
       return;
     }
 
-      try {
+          try {
         const response = await api.post('/api/auth/register', {
           username: registerData.username,
           email: registerData.email,
@@ -83,10 +80,9 @@ const LoginForm: React.FC = () => {
         
         const { access_token, user } = response.data;
         
-        // Persist via AuthContext
-        login(access_token, user);
-        navigate('/', { replace: true });
-
+        // Call parent callback
+        onLogin(access_token, user);
+      
       toast({
         title: "Registration successful",
         description: `Welcome to ${user.tenant_id}, ${user.username}!`,
@@ -277,15 +273,15 @@ const LoginForm: React.FC = () => {
                 style={{ fontSize: '16px' }}
               />
             </div>
-            {/* Optional: Business/Organization (not required by backend) */}
             <div className="form-group">
-              <label className="form-label">Business/Organization (optional)</label>
+              <label className="form-label">Business/Organization</label>
               <input
                 type="text"
                 className="form-input"
                 placeholder="e.g., coffee_shop, law_firm"
                 value={registerData.tenant_id}
                 onChange={(e) => setRegisterData({ ...registerData, tenant_id: e.target.value })}
+                required
                 style={{ fontSize: '16px' }}
               />
             </div>
@@ -353,5 +349,3 @@ const LoginForm: React.FC = () => {
     </div>
   );
 };
-
-export default LoginForm;

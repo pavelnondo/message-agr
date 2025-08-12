@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginForm from "./components/LoginForm";
+import { ChatProvider } from "./context/ChatContext";
 
 const queryClient = new QueryClient();
 
@@ -30,7 +31,9 @@ const App = () => (
               path="/"
               element={
                 <RequireAuth>
-                  <Index />
+                  <ChatProvider>
+                    <Index />
+                  </ChatProvider>
                 </RequireAuth>
               }
             />

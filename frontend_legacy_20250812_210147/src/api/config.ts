@@ -1,13 +1,13 @@
-// API Configuration - supports environment overrides (VITE_API_URL, VITE_WS_URL)
-// Fallback to same-origin relative paths so nginx can proxy /api and /ws
+// API Configuration - designed for both local dev and production behind nginx
+// Use same-origin relative paths by default so nginx can proxy /api and /ws
 const wsProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
 const host = typeof window !== 'undefined' ? window.location.host : 'localhost';
-const envApiUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-const envWsUrl = (import.meta as any)?.env?.VITE_WS_URL as string | undefined;
 
 export const API_CONFIG = {
-  API_URL: envApiUrl ?? '',
-  WS_BASE: envWsUrl ?? `${wsProtocol}://${host}`,
+  // Empty means use same origin, e.g., http(s)://host
+  API_URL: '',
+  // WebSocket base, e.g., ws(s)://host
+  WS_BASE: `${wsProtocol}://${host}`,
 };
 
 // API endpoints - Updated for n8n workflow
