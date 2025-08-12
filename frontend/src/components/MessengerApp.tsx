@@ -6,6 +6,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "next-themes";
 import { cn } from "@/lib/utils";
 import * as api from "@/api/api";
+import { connectMessagesWebSocket, connectChatUpdatesWebSocket } from "@/api/api";
 
 export interface Chat {
   id: string;
@@ -261,6 +262,37 @@ export function MessengerApp() {
       } catch {}
     })();
   }, [selectedChat?.id]);
+
+  // Live WebSocket updates for messages and chat updates
+  useEffect(() => {
+    const wsMessages = connectMessagesWebSocket((msg) => {
+      const mapped = {
+        id: msg.id,
+        content: msg.message,
+        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isOutgoing: msg.message_type === 'answer',
+        isRead: true,
+        platform: 'telegram' as Chat['platform'],
+      };
+      setMessagesByChat((prev) => ({ ...prev, [msg.chat_id]: [...(prev[msg.chat_id] || []), mapped] }));
+      setChats((prev) => prev.map(c => c.id === msg.chat_id ? { ...c, lastMessage: msg.message, timestamp: msg.created_at } : c));
+    });
+
+    const wsUpdates = connectChatUpdatesWebSocket((chat) => {
+      setChats((prev) => {
+        const idx = prev.findIndex(c => c.id === chat.id);
+        if (idx === -1) return prev;
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], isAI: chat.ai_enabled };
+        return copy;
+      });
+    });
+
+    return () => {
+      try { wsMessages && wsMessages.close(); } catch {}
+      try { wsUpdates && wsUpdates.close(); } catch {}
+    };
+  }, []);
 
   const handleToggleAI = (chatId: string) => {
     setChats(prevChats => 

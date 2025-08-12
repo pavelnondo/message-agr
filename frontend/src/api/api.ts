@@ -236,8 +236,7 @@ export async function saveAISettings(settings: BotSettings): Promise<{ message: 
 
 export function connectMessagesWebSocket(onMessage: (message: Message) => void): WebSocket | null {
   try {
-    const base = API_CONFIG.API_URL || '';
-    const wsUrl = base.replace('http', 'ws') + ENDPOINTS.WS_MESSAGES;
+    const wsUrl = `${API_CONFIG.WS_BASE}${ENDPOINTS.WS_MESSAGES}`;
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log('WebSocket connected for messages');
     ws.onmessage = (event) => {
@@ -256,8 +255,7 @@ export function connectMessagesWebSocket(onMessage: (message: Message) => void):
 
 export function connectChatUpdatesWebSocket(onChatUpdate: (chat: Chat) => void): WebSocket | null {
   try {
-    const base = API_CONFIG.API_URL || '';
-    const wsUrl = base.replace('http', 'ws') + ENDPOINTS.WS_UPDATES;
+    const wsUrl = `${API_CONFIG.WS_BASE}${ENDPOINTS.WS_UPDATES}`;
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log('WebSocket connected for chat updates');
     ws.onmessage = (event) => {
