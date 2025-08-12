@@ -575,6 +575,10 @@ async def get_ai_settings():
             
         logger.info(f"Attempting to fetch AI settings from N8N: {N8N_WEBHOOK_URL}")
         
+        # Determine tenant_id from bot token
+        tenant_id = await get_tenant_id_from_bot_token(BOT_TOKEN)
+        logger.info(f"Using tenant_id: {tenant_id}")
+        
         # Request current settings from n8n
         # Disable SSL verification for self-signed certificates
         connector = aiohttp.TCPConnector(ssl=False)
@@ -584,6 +588,7 @@ async def get_ai_settings():
         ) as session:
             payload = {
                 "action": "get_settings",
+                "tenant_id": tenant_id,  # Include tenant_id in the request
                 "timestamp": datetime.utcnow().isoformat()
             }
             logger.info(f"N8N get payload: {payload}")
@@ -596,7 +601,7 @@ async def get_ai_settings():
                         data = await response.json()
                         logger.info(f"N8N settings data: {data}")
                         return {
-                            "system_message": data.get("system_message", ""),
+                            "system_message": data.get("system message for ai", ""),
                             "faqs": data.get("faqs", "")
                         }
                     else:
@@ -628,6 +633,10 @@ async def save_ai_settings(settings: dict):
             
         logger.info(f"Attempting to save AI settings to N8N: {N8N_WEBHOOK_URL}")
         
+        # Determine tenant_id from bot token
+        tenant_id = await get_tenant_id_from_bot_token(BOT_TOKEN)
+        logger.info(f"Using tenant_id: {tenant_id}")
+        
         # Send settings to n8n
         # Disable SSL verification for self-signed certificates
         connector = aiohttp.TCPConnector(ssl=False)
@@ -637,6 +646,7 @@ async def save_ai_settings(settings: dict):
         ) as session:
             payload = {
                 "action": "save_settings",
+                "tenant_id": tenant_id,  # Include tenant_id in the request
                 "system_message": settings.get("system_message", ""),
                 "faqs": settings.get("faqs", ""),
                 "timestamp": datetime.utcnow().isoformat()
