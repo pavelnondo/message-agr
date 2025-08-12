@@ -3,6 +3,11 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/api/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 const LoginForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -56,55 +61,56 @@ const LoginForm: React.FC = () => {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 16, padding: 40, width: '100%', maxWidth: 440, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)', border: '1px solid var(--border-primary)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ width: 80, height: 80, background: 'linear-gradient(135deg, #00b894, #00a085)', borderRadius: 20, margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, color: 'white' }}>💬</div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>Message Aggregator</h1>
-          <p style={{ fontSize: 16, color: 'var(--text-secondary)', fontWeight: 400 }}>AI Chat Management Platform</p>
-        </div>
-
-        <div style={{ display: 'flex', background: 'var(--bg-accent)', borderRadius: 12, padding: 4, marginBottom: 24, border: '1px solid var(--border-primary)' }}>
-          <button type="button" onClick={() => setActiveTab('login')} style={{ flex: 1, padding: '12px 16px', background: activeTab === 'login' ? 'var(--border-focus)' : 'transparent', color: activeTab === 'login' ? 'white' : 'var(--text-secondary)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' }}>Sign In</button>
-          <button type="button" onClick={() => setActiveTab('register')} style={{ flex: 1, padding: '12px 16px', background: activeTab === 'register' ? 'var(--border-focus)' : 'transparent', color: activeTab === 'register' ? 'white' : 'var(--text-secondary)', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' }}>Register</button>
-        </div>
-
-        {activeTab === 'login' && (
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div className="form-group">
-              <label className="form-label">Username</label>
-              <input type="text" className="form-input" placeholder="Enter your username" value={loginData.username} onChange={(e) => setLoginData({ ...loginData, username: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input type="password" className="form-input" placeholder="Enter your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <button type="submit" disabled={isLoading} style={{ width: '100%', padding: '14px 20px', background: isLoading ? '#94a3b8' : 'linear-gradient(135deg, #00b894, #00a085)', color: 'white', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease', boxShadow: isLoading ? 'none' : '0 4px 6px -1px rgba(0,0,0,0.1)' }}>{isLoading ? 'Signing in...' : 'Sign In'}</button>
-          </form>
-        )}
-
-        {activeTab === 'register' && (
-          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="form-group">
-              <label className="form-label">Username</label>
-              <input type="text" className="form-input" placeholder="Choose a username" value={registerData.username} onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input type="email" className="form-input" placeholder="Enter your email" value={registerData.email} onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input type="password" className="form-input" placeholder="Choose a password" value={registerData.password} onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Confirm Password</label>
-              <input type="password" className="form-input" placeholder="Confirm your password" value={registerData.confirmPassword} onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })} required style={{ fontSize: 16 }} />
-            </div>
-            <button type="submit" disabled={isLoading} style={{ width: '100%', padding: '14px 20px', background: isLoading ? '#94a3b8' : 'linear-gradient(135deg, #00b894, #00a085)', color: 'white', border: 'none', borderRadius: 8, fontSize: 16, fontWeight: 600, cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s ease', boxShadow: isLoading ? 'none' : '0 4px 6px -1px rgba(0,0,0,0.1)' }}>{isLoading ? 'Creating account...' : 'Create Account'}</button>
-          </form>
-        )}
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-400 to-purple-600 flex items-center justify-center p-6">
+      <Card className="w-full max-w-md shadow-xl border-border">
+        <CardHeader className="text-center">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-500 text-white flex items-center justify-center mx-auto mb-3 text-2xl">💬</div>
+          <CardTitle className="text-2xl">Message Aggregator</CardTitle>
+          <p className="text-sm text-muted-foreground">AI Chat Management Platform</p>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'login' | 'register')} className="w-full">
+            <TabsList className="grid grid-cols-2 w-full">
+              <TabsTrigger value="login">Sign In</TabsTrigger>
+              <TabsTrigger value="register">Register</TabsTrigger>
+            </TabsList>
+            <TabsContent value="login" className="mt-6">
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input id="username" placeholder="Enter your username" value={loginData.username} onChange={(e) => setLoginData({ ...loginData, username: e.target.value })} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" type="password" placeholder="Enter your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} required />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'Signing in...' : 'Sign In'}</Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="register" className="mt-6">
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reg-username">Username</Label>
+                  <Input id="reg-username" placeholder="Choose a username" value={registerData.username} onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-email">Email</Label>
+                  <Input id="reg-email" type="email" placeholder="Enter your email" value={registerData.email} onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-password">Password</Label>
+                  <Input id="reg-password" type="password" placeholder="Choose a password" value={registerData.password} onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-confirm">Confirm Password</Label>
+                  <Input id="reg-confirm" type="password" placeholder="Confirm your password" value={registerData.confirmPassword} onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })} required />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'Creating account...' : 'Create Account'}</Button>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 };
