@@ -138,10 +138,7 @@ export async function getChats(): Promise<Chat[]> {
 }
 
 export async function getMessages(chatId: string): Promise<Message[]> {
-  const base = API_CONFIG.API_URL || '';
-  const response = await fetch(`${base}${ENDPOINTS.CHAT_MESSAGES}/${chatId}/messages`);
-  if (!response.ok) throw new Error('Failed to fetch messages');
-  const data = await response.json();
+  const { data } = await api.get(`${ENDPOINTS.CHAT_MESSAGES}/${chatId}/messages`);
   const list = Array.isArray(data) ? data : (data.messages || []);
   return list.map((message: any) => ({
     id: message.id.toString(),

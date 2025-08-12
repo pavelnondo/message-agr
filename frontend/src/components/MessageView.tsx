@@ -102,8 +102,9 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
 
   const messages = useMemo(() => {
     if (!selectedChat) return [] as Message[];
+    // Prefer external live messages; fallback to mock only if none
     if (externalMessages && externalMessages.length > 0) return externalMessages;
-    return mockMessages[selectedChat.id] || [];
+    return [];
   }, [selectedChat, externalMessages]);
 
   const handleSendMessage = async () => {

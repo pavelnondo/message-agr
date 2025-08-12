@@ -294,14 +294,17 @@ export function MessengerApp() {
     };
   }, []);
 
-  const handleToggleAI = (chatId: string) => {
-    setChats(prevChats => 
-      prevChats.map(chat => 
-        chat.id === chatId 
-          ? { ...chat, isAI: !chat.isAI }
-          : chat
-      )
-    );
+  const handleToggleAI = async (chatId: string) => {
+    const target = chats.find(c => c.id === chatId);
+    if (!target) return;
+    const next = !target.isAI;
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, isAI: next } : c));
+    try {
+      await api.updateChat(chatId, { ai_enabled: next });
+    } catch {
+      // rollback on failure
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, isAI: !next } : c));
+    }
   };
 
   const handleUpdateTags = (chatId: string, newTags: string[]) => {
