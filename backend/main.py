@@ -601,7 +601,7 @@ async def get_ai_settings():
                         data = await response.json()
                         logger.info(f"N8N settings data: {data}")
                         return {
-                            "system_message": data.get("system message for ai", ""),
+                            "system_message": data.get("system_message", ""),  # Changed from "system message for ai"
                             "faqs": data.get("faqs", "")
                         }
                     else:
