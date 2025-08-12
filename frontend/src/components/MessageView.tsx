@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Send, Paperclip, MoreVertical, Archive, Trash2, X, Menu, Bot, BotOff, Check, CheckCheck, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,7 +99,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
 
   // Keep local AI toggle state in sync with selected chat
-  React.useEffect(() => {
+  useEffect(() => {
     setIsAIEnabled(!!selectedChat?.isAI);
   }, [selectedChat?.id, selectedChat?.isAI]);
 
