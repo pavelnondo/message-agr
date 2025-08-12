@@ -118,7 +118,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    const threshold = 120;
+    const threshold = 8;
     const bottomOutOfView = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
     setIsNearBottom(!bottomOutOfView);
     setShowJumpButton(bottomOutOfView);
@@ -142,11 +142,14 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const threshold = 120;
+    const threshold = 8;
     const bottomOutOfView = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
     if (justOpenedRef.current) {
       // First load after opening chat: always jump to bottom
-      el.scrollTop = el.scrollHeight;
+      // use double RAF to ensure layout is committed
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      }));
       justOpenedRef.current = false;
       setShowJumpButton(false);
       setIsNearBottom(true);
@@ -420,7 +423,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
         {/* Overlay container spanning the scroll viewport */}
         {showJumpButton && (
           <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute bottom-6 right-6 pointer-events-auto">
+            <div className="absolute bottom-6 right-6 pointer-events-auto z-50">
               <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
                 <ArrowDown className="h-5 w-5" />
               </Button>
