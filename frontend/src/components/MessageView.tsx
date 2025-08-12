@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Paperclip, MoreVertical, Archive, Trash2, X, Menu, Bot, BotOff, Check, CheckCheck, Plus, RotateCcw } from "lucide-react";
+import { Send, Paperclip, MoreVertical, Archive, Trash2, X, Menu, Bot, BotOff, Check, CheckCheck, Plus, RotateCcw, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -120,7 +120,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     const threshold = 120;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsNearBottom(atBottom);
-    if (atBottom) setShowJumpButton(false);
+    setShowJumpButton(!atBottom);
   };
 
   const scrollToBottom = () => {
@@ -393,11 +393,11 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
           </div>
         ))}
 
-        {/* Jump to latest button */}
+        {/* Jump to latest button (circular down-arrow) */}
         {showJumpButton && (
           <div className="fixed bottom-24 right-6">
-            <Button size="sm" className="shadow" onClick={scrollToBottom}>
-              Jump to latest
+            <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
+              <ArrowDown className="h-5 w-5" />
             </Button>
           </div>
         )}

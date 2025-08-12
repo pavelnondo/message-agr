@@ -47,6 +47,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (storedToken && storedUser) {
         try {
+          // Set default auth header before calling /me so it persists across reloads
+          api.defaults.headers.common.Authorization = `Bearer ${storedToken}`;
           const response = await api.get('/api/auth/me');
           const currentUser = response.data;
           setToken(storedToken);
@@ -67,6 +69,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(userData);
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(userData));
+    api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
   };
 
   const logout = () => {
