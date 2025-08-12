@@ -133,9 +133,9 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.addEventListener('scroll', handleScroll);
-    return () => el.removeEventListener('scroll', handleScroll);
-  }, []);
+    el.addEventListener('scroll', handleScroll, { passive: true } as any);
+    return () => el.removeEventListener('scroll', handleScroll as any);
+  }, [selectedChat?.id]);
 
   // When new messages arrive, auto-scroll if near bottom; otherwise show jump button
   useEffect(() => {
@@ -356,7 +356,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
       </div>
 
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-background to-muted/20">
+      <div ref={scrollRef} className="relative flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-background to-muted/20">
         {messages.map((message, index) => (
           <div
             key={message.id}
@@ -395,7 +395,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
 
         {/* Jump to latest button (circular down-arrow) */}
         {showJumpButton && (
-          <div className="fixed bottom-24 right-6">
+          <div className="absolute bottom-6 right-6">
             <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
               <ArrowDown className="h-5 w-5" />
             </Button>
