@@ -251,7 +251,7 @@ async def update_chat(chat_id: int, chat_update: ChatUpdate, db: AsyncSession = 
             "type": "chat_update",
             "data": {
                 "id": str(chat.id),
-                "user_id": chat.user_id or chat.name,  # Use user_id if available, fallback to name
+                "user_id": chat.name or chat.user_id,  # Prefer display name, fallback to raw user_id
                 "ai_enabled": chat.ai,  # Map DB ai column to frontend ai_enabled
                 "is_awaiting_manager_confirmation": chat.is_awaiting_manager_confirmation,
                 "created_at": chat.created_at.isoformat() if chat.created_at else None,
@@ -1138,7 +1138,7 @@ async def handle_n8n_response(original_message: dict, n8n_response: dict):
                             "type": "chat_update",
                             "data": {
                                 "id": str(chat.id),
-                                "user_id": chat.user_id or chat.name,  # Use user_id if available, fallback to name
+                                "user_id": chat.name or chat.user_id,  # Prefer display name, fallback to raw user_id
                                 "ai_enabled": False,
                                 "is_awaiting_manager_confirmation": True,  # Keep for frontend compatibility
                                 "created_at": chat.created_at.isoformat(),
@@ -1326,7 +1326,7 @@ async def auto_ai_reactivation_task():
                         "type": "chat_update",
                         "data": {
                             "id": str(chat.id),
-                            "user_id": chat.user_id or chat.name,
+                            "user_id": chat.name or chat.user_id,
                             "ai_enabled": True,
                             "is_awaiting_manager_confirmation": False,
                             "created_at": chat.created_at.isoformat() if hasattr(chat, 'created_at') and chat.created_at else None,

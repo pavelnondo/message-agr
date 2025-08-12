@@ -289,7 +289,7 @@ async def get_chats_with_last_messages(db: AsyncSession, limit: int = 20) -> Lis
         """
         SELECT
           c.id,
-          COALESCE(c.user_id, c.name) as user_display,
+          COALESCE(c.name, c.user_id) as user_display,
           c.ai,
           c.waiting,
           c.is_awaiting_manager_confirmation,
