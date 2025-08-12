@@ -101,6 +101,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showJumpButton, setShowJumpButton] = useState(false);
   const justOpenedRef = useRef<boolean>(true);
+  const lastMessageRef = useRef<HTMLDivElement | null>(null);
 
   // Keep local AI toggle state in sync with selected chat
   useEffect(() => {
@@ -137,6 +138,25 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
     el.addEventListener('scroll', handleScroll, { passive: true } as any);
     return () => el.removeEventListener('scroll', handleScroll as any);
   }, [selectedChat?.id]);
+
+  // Observe whether the last message is visible; hide button when it is
+  useEffect(() => {
+    const root = scrollRef.current;
+    const target = lastMessageRef.current;
+    if (!root || !target) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setShowJumpButton(!entry.isIntersecting);
+      },
+      {
+        root,
+        threshold: 0.99,
+      }
+    );
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [messages.length, selectedChat?.id]);
 
   // When new messages arrive, auto-scroll if near bottom; otherwise show jump button
   useEffect(() => {
@@ -386,6 +406,7 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
         {messages.map((message, index) => (
           <div
             key={message.id}
+            ref={index === messages.length - 1 ? lastMessageRef : undefined}
             className={cn(
               "flex",
               message.isOutgoing ? "justify-end" : "justify-start"
@@ -420,14 +441,12 @@ export function MessageView({ selectedChat, onToggleChatList, isChatListOpen, on
         ))}
 
         {/* Jump to latest button (circular down-arrow) */}
-        {/* Overlay container spanning the scroll viewport */}
+        {/* Sticky jump button sits at bottom-right within the scroll viewport */}
         {showJumpButton && (
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute bottom-6 right-6 pointer-events-auto z-50">
-              <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
-                <ArrowDown className="h-5 w-5" />
-              </Button>
-            </div>
+          <div className="sticky bottom-20 flex justify-end pr-6">
+            <Button size="icon" className="h-10 w-10 rounded-full shadow" onClick={scrollToBottom} aria-label="Jump to latest">
+              <ArrowDown className="h-5 w-5" />
+            </Button>
           </div>
         )}
       </div>
