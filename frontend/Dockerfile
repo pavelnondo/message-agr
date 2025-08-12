@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with clean, reproducible installs
-RUN npm ci
+# Install dependencies; prefer clean install, fallback to install if lock is out of sync
+RUN npm ci || npm install --no-audit --no-fund
 
 # Copy source code
 COPY . .
